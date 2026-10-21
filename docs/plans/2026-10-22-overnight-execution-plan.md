@@ -121,8 +121,10 @@ Order is by value; each step ends with a commit and push.
 
 ## Progress log (continued)
 
-- **02:35** M3 committed and pushed (`d814648`), including a fix for the CI failure on `8a95d29` (`TestDropIn/meson` ran `meson test` without Ninja on `PATH`; verified in the CI image).
-- **02:50** M4 built (uncommitted at this line; see git log): `internal/run`, the builder's Observer, `build --detach`, `status`/`wait`/`log`/`stop`, `tests/compat/detach_test.go` (5 tests pass).
-- **04:35** M6 built: `internal/generator`, `internal/install` (rules, journaled commit, recovery), `kiln install`; unit tests (including a crash at every commit point) and `tests/compat/install_test.go` pass. Phase A: DuckDB and RDKit trees agree with Ninja's (RDKit: same 229 pass / 49 fail in both); LLVM's kiln rebuild was running.
-- **05:10** M7 built: declared environment (`internal/envdecl`, `.kiln/env.log`), `kiln exec`, `kiln test` with JUnit and expected failures; `tests/compat/env_test.go` passes; GLib `kiln test` with an xfail list was running.
-- **05:45** M8 built: `internal/cache`, `[cache]` config, injection, hit-rate report, `kiln cache stats|trim`; `tests/compat/cache_test.go` passes (plain ccache 0/23 hits on a second checkout, managed 23/23).
+Times are the real commit times (IST).
+
+- **02:02** M3 committed and pushed (`d814648`), including a fix for the CI failure on `8a95d29` (`TestDropIn/meson` ran `meson test` without Ninja on `PATH`; verified in the CI image). The memory tests, including the 2 GiB container test, pass.
+- **03:56** M4 committed (`e04e83a`): `internal/run`, the builder's Observer, `build --detach`, `status`/`wait`/`log`/`stop`, `tests/compat/detach_test.go`. CI green.
+- **04:04** M6 committed (`c176140`): `internal/generator`, `internal/install` (rules, journaled commit, recovery), `kiln install`; unit tests including a crash at every commit point, plus end-to-end tests under CMake and Meson. CI green.
+- **04:21** M7, M8 and the M5 documentation and release work committed (`1216f17`): declared environment, `kiln exec`, `kiln test`, the compiler cache, README, DESIGN, CHANGELOG, `tools/bench`, the release workflow. The README test found and fixed a bug (a detached build with nothing to do exited 1).
+- **Phase A:** DuckDB and RDKit agree with Ninja's trees (RDKit: the same 229 pass / 49 fail in both); LLVM's kiln rebuild was still running. Remaining: its comparison, then hardening and the untested items listed in the memory note.
