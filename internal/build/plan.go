@@ -20,19 +20,55 @@ const (
 )
 
 // Plan tracks the edges a build wants and which are ready to run. It is
-// a port of Ninja's Plan, minus pools, which only affect order.
+// a port of Ninja's Plan.
 type Plan struct {
 	builder *Builder
 	want    map[*graph.Edge]want
 	order   []*graph.Edge // edges in the order they joined want, for determinism
 	ready   []*graph.Edge
 	// wanted counts edges still wanted. commands counts non-phony edges
-	// ever wanted; Ninja's more_to_do needs both to be non-zero.
+	// wanted and not cleaned by restat; Ninja's more_to_do needs both.
 	wanted, commands int
+	pools            map[*graph.Pool]*poolState
+}
+
+// poolState is a pool's use during one build: edges count against its
+// depth from when they're scheduled until they finish.
+type poolState struct {
+	use     int
+	delayed []*graph.Edge
 }
 
 func newPlan(b *Builder) *Plan {
-	return &Plan{builder: b, want: map[*graph.Edge]want{}}
+	return &Plan{builder: b, want: map[*graph.Edge]want{}, pools: map[*graph.Pool]*poolState{}}
+}
+
+func (p *Plan) pool(e *graph.Edge) *poolState {
+	ps := p.pools[e.Pool]
+	if ps == nil {
+		ps = &poolState{}
+		p.pools[e.Pool] = ps
+	}
+	return ps
+}
+
+// retrieveReadyEdges moves delayed edges into the ready queue while the
+// pool has room.
+func (p *Plan) retrieveReadyEdges(e *graph.Edge) {
+	if e.Pool.Depth == 0 {
+		return
+	}
+	ps := p.pool(e)
+	n := 0
+	for _, d := range ps.delayed {
+		if ps.use+1 > e.Pool.Depth {
+			break
+		}
+		p.ready = append(p.ready, d)
+		ps.use++
+		n++
+	}
+	ps.delayed = ps.delayed[n:]
 }
 
 func (p *Plan) moreToDo() bool { return p.wanted > 0 && p.commands > 0 }
@@ -100,6 +136,12 @@ func (p *Plan) scheduleWork(e *graph.Edge) {
 		return // already scheduled
 	}
 	p.want[e] = wantToFinish
+	if e.Pool.Depth != 0 {
+		ps := p.pool(e)
+		ps.delayed = append(ps.delayed, e)
+		p.retrieveReadyEdges(e)
+		return
+	}
 	p.ready = append(p.ready, e)
 }
 
@@ -123,10 +165,15 @@ func (p *Plan) findWork() *graph.Edge {
 // edgeFinished records that e completed (successfully or not).
 func (p *Plan) edgeFinished(e *graph.Edge, success bool) error {
 	w := p.want[e]
+	directlyWanted := w != wantNothing
+	if directlyWanted && e.Pool.Depth != 0 {
+		p.pool(e).use--
+	}
+	p.retrieveReadyEdges(e)
 	if !success {
 		return nil
 	}
-	if w != wantNothing {
+	if directlyWanted {
 		p.wanted--
 	}
 	delete(p.want, e)
@@ -164,6 +211,56 @@ func (p *Plan) edgeMaybeReady(e *graph.Edge) error {
 	}
 	// Not needed itself, but its dependents may be.
 	return p.edgeFinished(e, true)
+}
+
+// cleanNode propagates a restat result: node turned out not to change,
+// so edges waiting on it may not need to run after all. A port of Ninja's
+// Plan::CleanNode.
+func (p *Plan) cleanNode(scan *Scanner, node *graph.Node) error {
+	node.Dirty = false
+	for i := 0; i < len(node.OutEdges); i++ {
+		oe := node.OutEdges[i]
+		if w, ok := p.want[oe]; !ok || w == wantNothing {
+			continue
+		}
+		if oe.DepsMissing {
+			continue // couldn't load its deps, so it must run anyway
+		}
+		ins := oe.Inputs[:len(oe.Inputs)-oe.OrderOnlyDeps]
+		var mostRecent *graph.Node
+		anyDirty := false
+		for _, in := range ins {
+			if in.Dirty {
+				anyDirty = true
+				break
+			}
+			if mostRecent == nil || in.Mtime() > mostRecent.Mtime() {
+				mostRecent = in
+			}
+		}
+		if anyDirty {
+			continue
+		}
+		dirty, err := scan.RecomputeOutputsDirty(oe, mostRecent)
+		if err != nil {
+			return err
+		}
+		if dirty {
+			continue
+		}
+		for _, o := range oe.Outputs {
+			if err := p.cleanNode(scan, o); err != nil {
+				return err
+			}
+		}
+		p.want[oe] = wantNothing
+		p.wanted--
+		if !oe.IsPhony() {
+			p.commands--
+			p.builder.status.edgeRemoved()
+		}
+	}
+	return nil
 }
 
 // dyndepsLoaded updates the plan once a dyndep file has been loaded:

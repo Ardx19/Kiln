@@ -56,6 +56,31 @@ kiln parses a depfile with the rules of the Ninja that owns the tree, chosen fro
 - **A deleted header is a reason to rebuild, not an error.** A missing input that only a deps log, depfile or dyndep file mentions makes its users dirty. A missing input named in the manifest stops the build ("missing and no known rule to make it").
 - **The manifest comes first, even in a dry run.** If `build.ninja` itself is out of date, `-n` shows only the steps that would regenerate it and stops there.
 
+## What a build leaves behind, by version (M1d)
+
+From `build.cc` and `build_log.cc` in 1.11.1, 1.12.1 and 1.13.2. kiln picks the behaviour from the tree's log version (`build.Profile`).
+
+| | Ninja 1.10–1.11 (v5) | Ninja 1.12 (v6) | Ninja 1.13 (v7) |
+|---|---|---|---|
+| mtime logged for an edge | Newest output mtime. If restat cleaned an output: newest input mtime, plus the depfile if the edge doesn't use `deps` | When the edge started: the mtime of `.ninja_lock`, rewritten as each edge starts. Restat and generator edges log the later of that and their outputs; if restat cleaned an output, the start time | Same as 1.12 |
+| Command hash | MurmurHash64A | MurmurHash64A | rapidhash |
+| Exit code when a command fails | 1 | 1 | The command's own exit status (128+signal if killed) |
+| Exit code when interrupted | 2 | 2 | 130 |
+
+**In every version:**
+
+- **Before running a generator edge, Ninja closes `.ninja_log`.** CMake and Meson then run `ninja -t restat` on it.
+- **When the manifest was regenerated, Ninja starts over**, reloading the manifest and both logs, up to 100 times.
+- **The deps log gets one record per output** of a `deps` edge, and only when something changed.
+- **On an interrupt or failure, Ninja signals each running command's process group** with the same signal and waits for them. It then deletes outputs whose mtime changed (always, if the edge has a depfile) and their depfiles.
+- **A command killed by SIGINT, SIGTERM or SIGHUP counts as the build being interrupted**, even if Ninja itself wasn't.
+
+## Deliberate differences
+
+- **`kiln -n` doesn't touch the disk.** Ninja's dry run creates output directories, briefly writes response files, deletes a leftover depfile of a `deps` edge, and creates `builddir`. None of these change what gets rebuilt.
+- **kiln won't append to a log in a format it doesn't write.** It stops with an error instead of deleting the file, as D2 says.
+- **A corrupt `.ninja_deps` tail is truncated at the last good record.** Ninja truncates *after* a record that fails validation, so the next load trips over it again.
+
 ## CMake logs custom command outputs twice
 
 CMake declares each custom command output under both its relative path and an absolute implicit output (`${cmake_ninja_workdir}…`), so a single run writes two `.ninja_log` entries.

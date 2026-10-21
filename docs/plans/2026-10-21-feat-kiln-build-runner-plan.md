@@ -253,6 +253,27 @@ M2, M3 and M4 depend only on M1, so they can run in parallel, for example in sep
   - **Depfiles.** 25 tricky depfiles parse as each Ninja version parses them.
 - **Still to do in M1:** running commands (M1d), the clock-step warning, critical-path order and the explain/status polish (M1e).
 
+**M1d is done:** the rest of task 4, and tasks 6–7.
+
+- **kiln builds for real.**
+  - Commands run in their own process groups. Response files and depfiles are handled, restat pruning works, and pools are respected.
+  - `-j` and `-k` work. Interrupts kill the running process groups and clean up half-written outputs.
+  - Manifest regeneration restarts the build, closing the log first so the generator can run `ninja -t restat`.
+- **It writes `.ninja_log` and `.ninja_deps` like the Ninja that owns the tree** (`build.Profile`): log format and hash, which mtime is recorded (v5 output mtimes, v6+ lock-file start times), exit codes, and depfile dialect. A tree with no log yet gets the format of its configured Ninja.
+- **Checked against Ninja:**
+  - **`TestKilnBuild`:** kiln as runner B, 16 scripts (4 Ninja versions × 4 fixture types), all 384 steps. kiln runs the same commands as Ninja with the same exit codes and log version. Ninja, dry-running kiln's tree before and after every kiln build, sees exactly what kiln sees, so the tool-switch invariant holds at every step.
+  - **`TestKilnInterruptResume`:** SIGINT mid-build, then a resumed build. Neither tool sees leftover work, in all 16 combinations.
+  - **Corpus builds from scratch with kiln:**
+    - fmt: all 21 tests pass, and Ninja finds nothing to do.
+    - Ninja's own sources: the resulting binary works.
+    - GLib: Ninja finds nothing to do.
+  - **Speed.** Warm-cache GLib builds take the same time with either tool (11.8–12.4 s).
+- **Still to do in M1 (M1e):**
+  - critical-path order
+  - the clock-step warning
+  - smarter status output
+  - full RDKit and LLVM builds with kiln. Those need your go-ahead to rebuild in your trees.
+
 **Tasks**
 1. **Lexer and parser** for the full Ninja language, fuzzed:
    - variables, `rule`, `default` and `pool` (with depth)

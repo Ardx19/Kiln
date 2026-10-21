@@ -61,8 +61,8 @@ func (w *world) plan(target string) ([]string, error) {
 	w.t.Helper()
 	w.state.Reset()
 	var out strings.Builder
-	b := NewBuilder(w.state, NewScanner(w.state, w.disk, w.log, w.deps, nil), NewStatus(&out, "", true))
-	b.DryRun = true
+	b := NewBuilder(w.state, NewScanner(w.state, w.disk, w.log, w.deps, nil), NewStatus(&out, "", true),
+		Config{DryRun: true, Profile: Profile{LogVersion: 7}}, nil, nil)
 	if err := b.AddTarget(w.state.LookupNode(target)); err != nil {
 		return nil, err
 	}

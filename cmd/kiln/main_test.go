@@ -21,7 +21,7 @@ func TestParseArgs(t *testing.T) {
 		want options
 	}{
 		{[]string{"-nv", "-Cdir", "-j8", "a", "-k", "0", "b"},
-			options{file: "build.ninja", dir: "dir", dryRun: true, verbose: true, jobs: 8, targets: []string{"a", "b"}}},
+			options{file: "build.ninja", dir: "dir", dryRun: true, verbose: true, jobs: 8, jobsSet: true, keepGoingSet: true, targets: []string{"a", "b"}}},
 		{[]string{"-f", "x.ninja", "-d", "explain", "--", "-weird"},
 			options{file: "x.ninja", explain: true, targets: []string{"-weird"}}},
 		{[]string{"-C", "out", "-t", "deps", "-n", "foo"},

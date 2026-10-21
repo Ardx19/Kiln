@@ -46,14 +46,16 @@ Ninja only runs under `-n`, and only one that writes the tree's log version. Any
 
 `TestKilnDryRun` runs every edit script with Ninja doing the builds. At each step it compares `kiln -n -v` with `ninja -n -v`, before and after the build. `TestRealDryRun` does the same comparison once on every real tree, under the same safety rules as `TestRealState`. `TestDepfileCases` feeds tricky depfiles to each Ninja version (through `deps = gcc`) and compares the parsed inputs with kiln's.
 
-kiln itself so far only does Ninja's dry run:
+`TestKilnBuild` runs every script twice from the same snapshot: Ninja does the builds in run A, kiln in run B. They must agree at every step (commands run, exit codes, log version, leftover work). During run B, Ninja also dry-runs kiln's tree before and after each build and must see the same work, which is the tool-switch invariant. `TestKilnInterruptResume` interrupts a kiln build with SIGINT and resumes it.
+
+kiln builds like Ninja:
 
 ```bash
 go build -o bin/kiln ./cmd/kiln
-bin/kiln -C /path/to/build -n -v
+bin/kiln -C /path/to/build
 ```
 
-It also accepts `-d explain`, `-f` and targets.
+It takes `-j`, `-k`, `-n`, `-v`, `-f`, `-d explain|keepdepfile|keeprsp` and targets. It writes `.ninja_log` and `.ninja_deps` in the tree's existing format. A tree with no log gets the format of the Ninja it's configured with (`CMAKE_MAKE_PROGRAM`, `$NINJA`, or `ninja` on `PATH`).
 
 Fixture trees live under `.work/` (override with `KILN_WORK`). Runs inside the CI image use `.work/ci/`, because trees made there contain `/src/...` paths.
 

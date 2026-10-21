@@ -33,6 +33,8 @@ func NewStatus(out io.Writer, format string, verbose bool) *Status {
 
 func (s *Status) edgeAdded() { s.total++ }
 
+func (s *Status) edgeRemoved() { s.total-- }
+
 // Console-pool edges are announced when they start; others when they
 // finish.
 func (s *Status) edgeStarted(e *graph.Edge) {
@@ -42,10 +44,29 @@ func (s *Status) edgeStarted(e *graph.Edge) {
 	}
 }
 
-func (s *Status) edgeFinished(e *graph.Edge) {
+// edgeFinished prints the status line, then, for a failure, the failed
+// outputs and command, then whatever the command printed.
+func (s *Status) edgeFinished(e *graph.Edge, res *result) {
 	s.finished++
 	if e.Pool != graph.ConsolePool {
 		s.print(e)
+	}
+	if !res.success() {
+		var outs strings.Builder
+		for _, o := range e.Outputs {
+			outs.WriteString(o.Path + " ")
+		}
+		cmd, _ := e.Command(false)
+		fmt.Fprintf(s.out, "FAILED: [code=%d] %s\n%s\n", res.status(), outs.String(), cmd)
+		if res.err != nil {
+			fmt.Fprintln(s.out, res.err)
+		}
+	}
+	if res.output != "" {
+		io.WriteString(s.out, res.output)
+		if !strings.HasSuffix(res.output, "\n") {
+			io.WriteString(s.out, "\n")
+		}
 	}
 }
 
