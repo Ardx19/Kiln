@@ -47,6 +47,16 @@ func RepoRoot() (string, error) {
 	}
 }
 
+// WorkDir is where the harness keeps fixture trees: KILN_WORK, or
+// <repo>/.work. Runs inside the CI image use a separate directory, because
+// trees bake in absolute paths (/src/... there) that don't exist outside.
+func WorkDir(repo string) string {
+	if w := os.Getenv("KILN_WORK"); w != "" {
+		return w
+	}
+	return filepath.Join(repo, ".work")
+}
+
 // FindTools looks for tools in this order:
 //   - KILN_COMPAT_NINJAS (colon-separated paths), KILN_COMPAT_CMAKE, KILN_COMPAT_MESON
 //   - KILN_TOOLS (default <repo>/.tools), laid out by scripts/tools.sh

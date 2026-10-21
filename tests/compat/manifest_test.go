@@ -113,35 +113,49 @@ func TestManifestCases(t *testing.T) {
 	}
 }
 
-// TestRealManifests compares kiln with Ninja on real build trees: the
-// compat fixtures and corpus projects under .work, plus any build dirs
-// listed in KILN_TREES (colon-separated), such as local RDKit trees.
-func TestRealManifests(t *testing.T) {
+// realTrees lists real build trees: the compat fixtures and corpus
+// projects under .work, plus any build dirs in KILN_TREES
+// (colon-separated), such as local RDKit trees. It returns test names too.
+func realTrees(t *testing.T) (names, trees []string) {
+	t.Helper()
 	repo, _, _, _ := matrix(t)
-	ninja := newestNinja(t)
 	var dirs []string
-	for _, glob := range []string{".work/corpus/*/build", ".work/compat/*.snap/build", ".work/compat/ninja-*.snap/src"} {
-		found, _ := filepath.Glob(filepath.Join(repo, glob))
-		dirs = append(dirs, found...)
+	// Fixture trees as the last compat run left them (built and clean),
+	// not the .snap copies, whose absolute paths point at the live trees.
+	work := WorkDir(repo)
+	for _, glob := range []string{"corpus/*/build", "compat/*/build", "compat/ninja-*/src"} {
+		found, _ := filepath.Glob(filepath.Join(work, glob))
+		for _, d := range found {
+			if !strings.HasSuffix(filepath.Dir(d), ".snap") {
+				dirs = append(dirs, d)
+			}
+		}
 	}
 	if env := os.Getenv("KILN_TREES"); env != "" {
 		dirs = append(dirs, strings.Split(env, ":")...)
 	}
-	var trees []string
 	for _, d := range dirs {
-		if _, err := os.Stat(filepath.Join(d, "build.ninja")); err == nil {
-			trees = append(trees, d)
+		if _, err := os.Stat(filepath.Join(d, "build.ninja")); err != nil {
+			continue
 		}
+		name, _ := filepath.Rel(repo, d)
+		if strings.HasPrefix(name, "..") {
+			name = d
+		}
+		names, trees = append(names, name), append(trees, d)
 	}
 	if len(trees) == 0 {
 		t.Skip("no build trees found; run make compat or corpus/corpus.sh first")
 	}
-	for _, dir := range trees {
-		name, _ := filepath.Rel(repo, dir)
-		if strings.HasPrefix(name, "..") {
-			name = dir
-		}
-		t.Run(name, func(t *testing.T) {
+	return names, trees
+}
+
+// TestRealManifests compares kiln's parser with Ninja on real build trees.
+func TestRealManifests(t *testing.T) {
+	ninja := newestNinja(t)
+	names, trees := realTrees(t)
+	for i, dir := range trees {
+		t.Run(names[i], func(t *testing.T) {
 			r := CompareManifest(dir, ninja)
 			if r.KilnErr != nil {
 				t.Errorf("kiln couldn't read it: %v", r.KilnErr)

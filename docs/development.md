@@ -37,6 +37,15 @@ Known Ninja behaviours that look like failures are listed in [ninja-quirks.md](n
 KILN_TREES=/path/to/build:/path/to/other-build go test -tags compat -run Manifest ./tests/compat
 ```
 
+`TestRealState` checks kiln's `.ninja_log` and `.ninja_deps` readers on the same trees (`-run RealState`):
+
+- **Hashes.** Every log entry of an edge that `ninja -n` calls clean has kiln's command hash.
+- **Deps.** kiln's reading of the deps log reproduces `ninja -n -t deps` exactly.
+
+Ninja only runs under `-n`, and only one that writes the tree's log version. Any other Ninja would delete the log on load (see [ninja-quirks.md](ninja-quirks.md)). The test fails if the state files change.
+
+Fixture trees live under `.work/` (override with `KILN_WORK`). Runs inside the CI image use `.work/ci/`, because trees made there contain `/src/...` paths.
+
 Parse speed on a real tree:
 
 ```bash

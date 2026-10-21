@@ -1,0 +1,255 @@
+{
+ "source": "hashes recorded in .ninja_log by Ninja 1.12.1 (v6, MurmurHash64A) and 1.13.2 (v7, rapidhash) for these exact commands",
+ "vectors": [
+  {
+   "command": ":",
+   "murmur64a": "2e49d2477c6737f0",
+   "rapidhash": "a2da22321247804b"
+  },
+  {
+   "command": ": ",
+   "murmur64a": "98fe9d468fefab13",
+   "rapidhash": "4a480f4c6395d231"
+  },
+  {
+   "command": ": a",
+   "murmur64a": "f2d1360f1675bfb3",
+   "rapidhash": "bae980166742c4ce"
+  },
+  {
+   "command": "true",
+   "murmur64a": "486a3acadd116b47",
+   "rapidhash": "90a52a5dca2ed61"
+  },
+  {
+   "command": "true ",
+   "murmur64a": "2c6e59396f7a3684",
+   "rapidhash": "9816176dadc2d469"
+  },
+  {
+   "command": "true #",
+   "murmur64a": "ceee935a886001ce",
+   "rapidhash": "ea669fb14fb5347f"
+  },
+  {
+   "command": "true #a",
+   "murmur64a": "fc58d4221472773f",
+   "rapidhash": "aa264dfad83bd0c0"
+  },
+  {
+   "command": "true #ah",
+   "murmur64a": "eaa3350325357e57",
+   "rapidhash": "a6a4e8041bb2ab2d"
+  },
+  {
+   "command": "true #aho",
+   "murmur64a": "7d2a88430fc1e247",
+   "rapidhash": "1df4a95c80d95ed6"
+  },
+  {
+   "command": "true #ahov",
+   "murmur64a": "ad79d93c57999940",
+   "rapidhash": "37620981f7a5cffa"
+  },
+  {
+   "command": "true #ahovc",
+   "murmur64a": "2c1cc55c39ab2126",
+   "rapidhash": "fa06aa5fc3941396"
+  },
+  {
+   "command": "true #ahovcj",
+   "murmur64a": "725c7f114838e4bb",
+   "rapidhash": "11de7d53da7caa5"
+  },
+  {
+   "command": "true #ahovcjq",
+   "murmur64a": "cdfa4dc08557ba89",
+   "rapidhash": "88100e98ba1d1ea"
+  },
+  {
+   "command": "true #ahovcjqx",
+   "murmur64a": "10d71201fabd71ca",
+   "rapidhash": "bc5f21f6388cd4"
+  },
+  {
+   "command": "true #ahovcjqxe",
+   "murmur64a": "12f8074d93e1ea61",
+   "rapidhash": "500d24948a89dd32"
+  },
+  {
+   "command": "true #ahovcjqxel",
+   "murmur64a": "b4dcb682dcb90287",
+   "rapidhash": "8fb3fce1db24526e"
+  },
+  {
+   "command": "true #ahovcjqxels",
+   "murmur64a": "f729298f955df89f",
+   "rapidhash": "c85847d1fd6f5983"
+  },
+  {
+   "command": "true #ahovcjqxelsz",
+   "murmur64a": "47236229a60406d7",
+   "rapidhash": "4e44ae365a49f710"
+  },
+  {
+   "command": "true #ahovcjqxelszg",
+   "murmur64a": "ebd40238600b916f",
+   "rapidhash": "90c0bfed91422385"
+  },
+  {
+   "command": "true #ahovcjqxelszgn",
+   "murmur64a": "e6317c4e021ef3cb",
+   "rapidhash": "46ead7384c2bfd4e"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubip",
+   "murmur64a": "8e867a2f4a725b69",
+   "rapidhash": "e72bcd071309810d"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfm",
+   "murmur64a": "bfa272fd3a4ef98b",
+   "rapidhash": "d553c72fa2cdd6ee"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmt",
+   "murmur64a": "57d488f122146290",
+   "rapidhash": "1578e99d7ad50e08"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmta",
+   "murmur64a": "84626b344c4c1715",
+   "rapidhash": "7e59fc66be130709"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqx",
+   "murmur64a": "424136c718d0f6e2",
+   "rapidhash": "8747d6340751c8a9"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnu",
+   "murmur64a": "e33e8946f729c0db",
+   "rapidhash": "71fa481697f47a57"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnub",
+   "murmur64a": "c2b2a793576216a1",
+   "rapidhash": "1d3516ab84afc01b"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubi",
+   "murmur64a": "db9e63a0504c7fc",
+   "rapidhash": "b954a9bc2ce83db0"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubip",
+   "murmur64a": "51a0d4428908103",
+   "rapidhash": "23b242643143cdfa"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovc",
+   "murmur64a": "a8b873ae12c4de25",
+   "rapidhash": "c1c750e249db6755"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcj",
+   "murmur64a": "da3c46faabfe123",
+   "rapidhash": "1fbdced6d90f5138"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjq",
+   "murmur64a": "55b5d64ec8e0e35",
+   "rapidhash": "ef837e5b78590be3"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxels",
+   "murmur64a": "e11ac89f938e7256",
+   "rapidhash": "72346f3a9ca78525"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelsz",
+   "murmur64a": "1f1304c2e60edd73",
+   "rapidhash": "a37a29cc31f3015b"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszg",
+   "murmur64a": "45d237b97b7f196c",
+   "rapidhash": "2f690e02ab7da415"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnub",
+   "murmur64a": "a79e8afd54abb56d",
+   "rapidhash": "ee3cf7da080e3398"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjq",
+   "murmur64a": "8ce663e9897dccd7",
+   "rapidhash": "fe8fa370d4d31e55"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqx",
+   "murmur64a": "6503296c95f8168c",
+   "rapidhash": "dc1696701e22cb7f"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxe",
+   "murmur64a": "e2ee037618a351ca",
+   "rapidhash": "b1faeeb581952d37"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtaho",
+   "murmur64a": "bbeafb2b129673a",
+   "rapidhash": "cc0687426dd4e43b"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahov",
+   "murmur64a": "e4a88bda52d90406",
+   "rapidhash": "976e7bad8a02b31d"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovc",
+   "murmur64a": "8fa066ded09b8ced",
+   "rapidhash": "e32bdd1c269f9e5"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelsz",
+   "murmur64a": "9533d9217e1ba46d",
+   "rapidhash": "5e9dddf1fb99d98e"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnu",
+   "murmur64a": "1f217be8937ad944",
+   "rapidhash": "c2158aa4134bc65f"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnub",
+   "murmur64a": "4f2de25edf6fdde0",
+   "rapidhash": "2dbfc885cc155610"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqx",
+   "murmur64a": "470a5ae5094c5c37",
+   "rapidhash": "6afd19ebd0e8353d"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelsz",
+   "murmur64a": "b77d478184ebd416",
+   "rapidhash": "b5da7960524b3a7c"
+  },
+  {
+   "command": "true #ahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcjqxelszgnubipwdkryfmtahovcj",
+   "murmur64a": "efddddcee055e740",
+   "rapidhash": "64dcc0d511d2dccb"
+  },
+  {
+   "command": "true @rsp0.rsp;rspfile=a.o b.o c.o",
+   "murmur64a": "990e9f1dc4c032fb",
+   "rapidhash": "f930628b4ef76ce1"
+  },
+  {
+   "command": "true @rsp1.rsp;rspfile=x",
+   "murmur64a": "d1fdceca750b9be",
+   "rapidhash": "8a737e79ba4f47b3"
+  }
+ ]
+}

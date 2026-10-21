@@ -6,6 +6,17 @@ Found while building the M0 compatibility harness. Each one is reproduced by `te
 
 `.ninja_log` is v5 up to Ninja 1.11, v6 in 1.12, and v7 from 1.13 (command hash switched from MurmurHash64A to rapidhash). Ninja 1.12 and 1.13 delete a log of any other version ("build log version is too old/new; starting over"), so switching Ninja versions rebuilds everything. Sources: `src/build_log.cc` at each tag.
 
+## Merely loading the state can change it
+
+From `ninja.cc` and `{build,deps}_log.cc`, 1.10.1 and 1.13.2:
+
+- **Deleted on load.** Ninja deletes a `.ninja_deps` that isn't v4, and (from 1.12) a `.ninja_log` of any version but its own. This happens even under `-n`, and for tools that read the logs (`-t deps`, `-t query`…), because it happens in `Load`.
+- **Truncated on load.** A `.ninja_deps` with a corrupt or incomplete tail is truncated to the last good record, also under `-n`.
+- **Never touched.** `-t commands`, `-t targets` and other "after load" tools exit before the logs are opened.
+- **Recompaction needs a real run.** Ninja rewrites the logs only when it opens them for writing, which `-n` skips.
+
+kiln's readers report an unknown version (`state.VersionError`) and a corrupt tail (`DepsLog.Corrupt`) instead of acting on them. The compat tests only run Ninja on a tree after checking both, and with a Ninja that writes that tree's log version.
+
 ## Ninja 1.12+ records an edge's *start* time
 
 For ordinary edges, v6+ logs the mtime of a lock file created when the edge started, not the output's mtime. Generator and `restat` edges still log the output's real mtime. An input edited while its edge runs is therefore rebuilt next time. Source: commit `a2b5e6d`.

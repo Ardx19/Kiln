@@ -228,6 +228,18 @@ M2, M3 and M4 depend only on M1, so they can run in parallel, for example in sep
 - **Speed.** The largest RDKit manifest (5,636 edges) loads in about 40 ms. Ninja's whole `-t targets all` process takes 42–47 ms on the same tree.
 - **Still to do in M1:** `dyndep` loading (the parser records the binding and checks it's an input), and the LLVM tree, which hasn't been built yet.
 
+**M1b is done:** the reading half of task 4.
+
+- **Code.** `internal/state` reads `.ninja_log` v5/v6/v7 and `.ninja_deps` v4, and hashes commands with MurmurHash64A (v5/v6) or rapidhash (v7).
+  - An unknown version is reported, never deleted. A corrupt deps tail is reported, never truncated.
+  - Writing the logs comes with the executor (M1d).
+- **Checked against Ninja:**
+  - **Hash vectors.** 50 command lengths, each hashed both ways, match what Ninja 1.12 and 1.13 wrote.
+  - **Real trees.** `TestRealState` covers 48 trees: the 11 RDKit trees (v5), the corpus (v7) and the compat fixtures (v5, v6 and v7).
+  - **Hashes.** About 14,300 log entries of edges Ninja calls clean have exactly kiln's command hash.
+  - **Deps.** For about 11,800 outputs, kiln's reading of `.ninja_deps` reproduces `ninja -t deps` byte for byte.
+- **Safety.** Ninja runs only with `-n`, only with a Ninja that writes the tree's log version, and only after kiln has checked the deps log for corruption. `.ninja_log` and `.ninja_deps` are fingerprinted before and after each check, and no check changed them.
+
 **Tasks**
 1. **Lexer and parser** for the full Ninja language, fuzzed:
    - variables, `rule`, `default` and `pool` (with depth)

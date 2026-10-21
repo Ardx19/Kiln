@@ -8,9 +8,11 @@ CI_TARGET ?= lint test compat
 PROJECTS ?= ninja fmt fmt-multi cxx-modules
 
 # Runs a make target inside the CI image as the current user, so files it
-# writes into the checkout aren't owned by root.
+# writes into the checkout aren't owned by root. Build trees made in the
+# image hold /src/... paths, so they go to .work/ci, apart from the host's.
 DOCKER_RUN = docker run --rm --user $$(id -u):$$(id -g) \
 	-e HOME=/tmp -e GOCACHE=/tmp/go-cache -e GOMODCACHE=/tmp/go-mod \
+	-e KILN_WORK=/src/.work/ci -e KILN_CORPUS=/src/.work/ci/corpus \
 	-v "$(CURDIR):/src" -w /src $(CI_IMAGE)
 
 .PHONY: help build test lint tools compat compat-short corpus ci-image ci-run

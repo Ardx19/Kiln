@@ -40,7 +40,7 @@ func matrix(t *testing.T) (string, Tools, []Tool, int) {
 
 func setupTree(t *testing.T, repo string, k Kind, n Tool, tools Tools) *Tree {
 	t.Helper()
-	root := filepath.Join(repo, ".work", "compat", k.Name+"-"+n.Version)
+	root := filepath.Join(WorkDir(repo), "compat", k.Name+"-"+n.Version)
 	tree, err := Setup(root, k, n, tools)
 	var skip skipError
 	if errors.As(err, &skip) {
