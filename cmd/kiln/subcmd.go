@@ -20,7 +20,7 @@ var subcommands = map[string]func(p program, args []string, stdout, stderr io.Wr
 	"log":     runLog,
 	"stop":    runStop,
 	"mem":     runMem,
-	"install": nil,
+	"install": runInstall,
 	"test":    nil,
 	"exec":    nil,
 	"cache":   nil,

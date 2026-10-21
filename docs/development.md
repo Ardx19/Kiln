@@ -59,6 +59,18 @@ bin/kiln -C /path/to/build
 
 It takes `-j`, `-k`, `-n`, `-v`, `--quiet`, `-f`, `-d explain|keepdepfile|keeprsp` and targets, and honours `NINJA_STATUS` and `CLICOLOR_FORCE`. Ready edges start in critical-path order, weighted by each edge's last duration in `.ninja_log`. It writes `.ninja_log` and `.ninja_deps` in the tree's existing format. A tree with no log gets the format of the Ninja it's configured with (`CMAKE_MAKE_PROGRAM`, `$NINJA`, or `ninja` on `PATH`).
 
+**Install.** `kiln install` installs the build into its prefix and records ownership (see [ninja-quirks.md](ninja-quirks.md)):
+
+```bash
+kiln -C build install --dry-run      # what would change
+kiln -C build install                # build, stage, plan, commit
+kiln -C build install --swap         # replace another tree's install of this project
+kiln -C build install --stage        # then: sudo kiln install --commit DIR
+kiln -C build install --recover      # finish or undo an install a crash interrupted
+```
+
+`internal/install`'s tests cover the rules and crash a commit at every crash point (`TestCrashAtEveryPoint`). `tests/compat/install_test.go` covers fixture variants A and B under CMake and Meson (refused, then `--swap` leaves exactly B's set), a renamed library, two projects in one prefix, SIGKILL at each commit step with `KILN_TEST_CRASH_AT=step:n` then `--recover`, stage then commit, a read-only prefix, and `[install] command` trees.
+
 **Detached builds.** Start a build that outlives your terminal, then check on it from anywhere:
 
 ```bash

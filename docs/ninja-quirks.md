@@ -116,6 +116,16 @@ None of this changes what runs or what the logs say. It only changes when comman
 - **`kiln build --detach`** starts a daemon (new session, stdin from `/dev/null`, output to `output.log`) and returns once it holds the lock. A bad manifest, or a build that ends before the handshake does, is reported by the command itself with the build's exit code. The daemon ignores SIGHUP, and so do its jobs (an ignored signal is inherited).
 - **Liveness is the lock.** `status` says *running* while the lock is held, *finished* with the exit code, or *died* if `status.json` says running and nobody holds the lock. `wait` exits with the build's code (124 on `--timeout`), `stop` sends SIGTERM after checking the pid's start time against `status.json`, so a reused pid can't be hit.
 
+## Install ownership (M6)
+
+Ninja has no install step; `cmake --install` and `meson install` copy files over whatever is there. `kiln install` adds per-file ownership:
+- **Records.** `<prefix>/.kiln/owners.json` lists, per (project, build tree), each installed path with its hash or link target. A tree's identity is `.kiln/tree-id` in its build directory (a copy of the directory gets its own).
+- **Flow.** Build, then stage with `DESTDIR=<stage>` (`cmake --install`, `meson install`, or `[install] command` in `.kiln/config.toml` for other trees), then plan, then commit through a journal (`<prefix>/.kiln/txn/<id>/journal.json`). The commit moves each replaced file into `backup/`, moves the staged files in, writes `owners.json` atomically, and only then marks the journal committed. A crash before that is rolled back by the next `kiln install` or `kiln install --recover`; after it, finished.
+- **Rules** (see `internal/install/plan.go`): files this tree no longer installs are removed; files of another tree of the same project are refused unless `--swap` (which removes that tree's whole set); files of another project are refused unless `--force`; existing unowned files are adopted if identical and otherwise refused unless `--adopt`; a file to be removed or overwritten must still match its recorded hash, or `--force`.
+- **Git checkouts.** In-tree prefixes (RDKit's `RDK_INSTALL_INTREE`) are fine: git-tracked files are never removed and not overwritten without `--force`, and `.kiln/` is added to `.git/info/exclude`.
+- **Root-owned prefixes.** If you can't write to the prefix, `kiln install` stages in the build directory and prints `sudo kiln install --commit DIR`; the commit runs no build commands. `--stage` does the same on request.
+- **Scripts that ignore DESTDIR** are noticed by comparing the prefix before and after staging, and warned about; those files bypass ownership tracking.
+
 ## Deliberate differences
 
 - **Drop-in mode is chosen by the program's name.** Run as `ninja` (`kiln shim DIR` makes the symlink), kiln is Ninja's command line, prints `ninja:` and reports version 1.13.2. Run as `kiln`, the names `build status wait log stop mem install test exec cache shim` are subcommands, and `kiln build <name>` builds a target with one of those names.

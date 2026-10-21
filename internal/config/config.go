@@ -5,6 +5,11 @@
 //	budget   = "8GiB"   # --mem-budget
 //	min_jobs = 1        # --min-jobs
 //
+//	[install]           # in <build>/.kiln/config.toml
+//	command = "make install"   # honouring DESTDIR
+//	project = "name"
+//	prefix  = "/opt/name"
+//
 // Command-line flags override the file.
 package config
 
@@ -22,7 +27,20 @@ import (
 
 // Config is the contents of the file; unset values are zero.
 type Config struct {
-	Memory Memory `toml:"memory"`
+	Memory  Memory  `toml:"memory"`
+	Install Install `toml:"install"`
+}
+
+// Install is the [install] table, for trees kiln can't recognize as CMake
+// or Meson (and to override what it reads from them).
+type Install struct {
+	// Command installs the build into $DESTDIR, run by sh -c in the build
+	// directory. It must honour DESTDIR.
+	Command string `toml:"command"`
+	// Project names the project for ownership records.
+	Project string `toml:"project"`
+	// Prefix is the install prefix, when the build system doesn't say.
+	Prefix string `toml:"prefix"`
 }
 
 // Memory is the [memory] table.

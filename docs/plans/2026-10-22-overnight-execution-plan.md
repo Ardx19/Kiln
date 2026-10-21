@@ -123,3 +123,4 @@ Order is by value; each step ends with a commit and push.
 
 - **02:35** M3 committed and pushed (`d814648`), including a fix for the CI failure on `8a95d29` (`TestDropIn/meson` ran `meson test` without Ninja on `PATH`; verified in the CI image).
 - **02:50** M4 built (uncommitted at this line; see git log): `internal/run`, the builder's Observer, `build --detach`, `status`/`wait`/`log`/`stop`, `tests/compat/detach_test.go` (5 tests pass).
+- **04:35** M6 built: `internal/generator`, `internal/install` (rules, journaled commit, recovery), `kiln install`; unit tests (including a crash at every commit point) and `tests/compat/install_test.go` pass. Phase A: DuckDB and RDKit trees agree with Ninja's (RDKit: same 229 pass / 49 fail in both); LLVM's kiln rebuild was running.

@@ -560,12 +560,14 @@ The finish line is **v0.3** (M1–M8). M9 stays a prioritized backlog.
    - Remove directories only if they're empty.
    - Never delete git-tracked files when the prefix is a checkout, and add `.kiln/` to `.git/info/exclude` there.
 
+**Progress (2026-10-22): M6 is built.** `internal/generator` (CMake and Meson detection), `internal/install` (ownership records, the five rules, journaled commit, recovery, crash hooks) and `kiln install` with `--dry-run`, `--swap`, `--adopt`, `--force`, `--stage`, `--commit`, `--recover`, `--project`, `--config`. Tested with the rules unit-tested, a crash at every commit point, and fixtures under both generators. Still open: RDKit's in-tree Boost↔nanobind swap, and a commit run by actual root.
+
 **Acceptance**
-- [ ] Fixture variants A and B, under both CMake and Meson: installing B over A is refused, and `--swap` leaves exactly B's set.
-- [ ] Reinstalling after renaming an installed library removes the old file.
-- [ ] Two different projects coexist in one shared prefix, and a file both would install is refused.
-- [ ] **Crash injection.** A test hook can `kill -9` kiln at every commit step. Recovery always leaves the prefix exactly in the old or the new state, never a mix.
-- [ ] A root-owned prefix works through `--stage` and `--commit`.
+- [x] Fixture variants A and B, under both CMake and Meson: installing B over A is refused, and `--swap` leaves exactly B's set.
+- [x] Reinstalling after renaming an installed library removes the old file.
+- [x] Two different projects coexist in one shared prefix, and a file both would install is refused.
+- [x] **Crash injection.** A test hook can `kill -9` kiln at every commit step. Recovery always leaves the prefix exactly in the old or the new state, never a mix.
+- [x] A root-owned prefix works through `--stage` and `--commit`. *(Tested as a non-root user: a read-only prefix is staged with instructions, and `--commit` is a separate step; not yet run as root.)*
 - [ ] RDKit's in-tree Boost↔nanobind swap leaves none of the 66 or 57 stale paths, and `import rdkit.Chem` works in both directions.
 
 ### M7 — Declared environment and `kiln test` (M)
