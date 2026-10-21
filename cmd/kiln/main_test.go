@@ -22,7 +22,7 @@ func TestRun(t *testing.T) {
 		t.Errorf("kiln -x = %d, %q", got, errOut.String())
 	}
 	errOut.Reset()
-	if got := run(kilnProg, []string{"-C", "x", "status"}, io.Discard, &errOut); got != 1 || !strings.Contains(errOut.String(), "run 'kiln build status'") {
+	if got := run(kilnProg, []string{"-C", "x", "install"}, io.Discard, &errOut); got != 1 || !strings.Contains(errOut.String(), "run 'kiln build install'") {
 		t.Errorf("kiln status = %d, %q", got, errOut.String())
 	}
 }

@@ -63,7 +63,7 @@ type runner struct {
 	wake chan struct{}
 }
 
-func newRunner(parallelism int, maxLoad float64) *runner {
+func newRunner(parallelism int, maxLoad float64, ignoreHUP bool) *runner {
 	r := &runner{
 		parallelism: parallelism,
 		maxLoad:     maxLoad,
@@ -71,7 +71,12 @@ func newRunner(parallelism int, maxLoad float64) *runner {
 		done:        make(chan *result),
 		signals:     make(chan os.Signal, 1),
 	}
-	signal.Notify(r.signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	if ignoreHUP {
+		// A detached build must outlive its terminal.
+		signal.Notify(r.signals, syscall.SIGINT, syscall.SIGTERM)
+	} else {
+		signal.Notify(r.signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	}
 	return r
 }
 

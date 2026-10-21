@@ -97,14 +97,9 @@ Order is by value; each step ends with a commit and push.
 - **02:15** M2 and the M3 core are committed and pushed (`8a95d29`).
 - **02:40** M3 tests added: `TestMemBudget`, `TestMemBrake`, `TestMemOOMRetry` pass.
 
-## Handoff (read this first if you are a different agent, or resuming after a pause)
+## Working notes (resuming after a pause or a limit)
 
-**Rules for whoever continues:**
-1. **Check what changed first.** Run `git log --oneline -8` and `git status`, and read the progress log above. Another agent may have committed or left edits.
-2. **Repair before you build.** Work through these in order and fix anything that fails: `go build ./...`, `make lint test`, then `go test -tags compat -short -count=1 ./tests/compat`. Fix root causes, not tests. Don't continue with a red tree.
-3. **Then carry on** with the next unchecked item below. Commit and push each finished piece (`make lint test` green first). Commit messages carry **no Claude attribution and no Co-Authored-By line**.
-4. Long jobs go in the background (`setsid nohup ...` or `run_in_background`) with a Monitor that reports failures. The user's RDKit trees under `~/home/BTP/RDkit` only get `-n` dry runs.
-5. Keep this file's progress log and the memory note `kiln-roadmap-progress` current.
+**On resuming:** run `git log --oneline -8` and `git status`, then `go build ./...`, `make lint test` and the short compat suite, and fix anything red before going on. Then continue with the next unchecked item below. Commit and push each finished piece (no Claude attribution, no Co-Authored-By line). Long jobs run in the background with monitors. The user's RDKit trees only get `-n` dry runs. Keep this file's progress log and the memory note `kiln-roadmap-progress` current.
 
 **State at 02:20 IST:**
 - Committed and pushed: `8a95d29` (M2 drop-in; M3 core).
@@ -123,3 +118,8 @@ Order is by value; each step ends with a commit and push.
 2. Close Phase A (above).
 3. **M4 detached runs.** Design: `internal/run` with `.kiln/lock` (flock, fail fast naming the running build), `.kiln/runs/<id>/{status.json,output.log,failures/}`, `runs/latest`, keep 20; status.json is written atomically about once a second from the build loop (an Observer hook on the Builder, with a 1 s ticker so it never goes stale), fields: state, pid and process start ticks, targets, done/total, running jobs with RSS, budget/reserved, failures, exit code. `kiln build --detach` re-execs a hidden `kiln __daemon` with Setsid, stdin from /dev/null, output to `output.log`, with a handshake (parent waits for state running or finished; a manifest error is relayed with its exit code). Commands: `status [--json]` (running = lock held; finished = exit code; died = status says running but lock free), `wait [--timeout]` (exits with the build's code), `log [-f] [--failures]`, `stop` (SIGTERM after checking the pid's start ticks). `-n` takes no lock. `KILN_NO_LOCK=1` skips it. Tests in `tests/compat/detach_test.go`: SIGHUP to the session, `kill -9` leads to *died* and the next build runs, `log -f` returns at the end, `wait` exit codes, `stop` cleans up, a schema test for `status --json`.
 4. Not for tonight: M5 (benchmarks, v0.1.0 tag), M6-M8.
+
+## Progress log (continued)
+
+- **02:35** M3 committed and pushed (`d814648`), including a fix for the CI failure on `8a95d29` (`TestDropIn/meson` ran `meson test` without Ninja on `PATH`; verified in the CI image).
+- **02:50** M4 built (uncommitted at this line; see git log): `internal/run`, the builder's Observer, `build --detach`, `status`/`wait`/`log`/`stop`, `tests/compat/detach_test.go` (5 tests pass).

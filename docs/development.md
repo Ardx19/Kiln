@@ -59,6 +59,20 @@ bin/kiln -C /path/to/build
 
 It takes `-j`, `-k`, `-n`, `-v`, `--quiet`, `-f`, `-d explain|keepdepfile|keeprsp` and targets, and honours `NINJA_STATUS` and `CLICOLOR_FORCE`. Ready edges start in critical-path order, weighted by each edge's last duration in `.ninja_log`. It writes `.ninja_log` and `.ninja_deps` in the tree's existing format. A tree with no log gets the format of the Ninja it's configured with (`CMAKE_MAKE_PROGRAM`, `$NINJA`, or `ninja` on `PATH`).
 
+**Detached builds.** Start a build that outlives your terminal, then check on it from anywhere:
+
+```bash
+kiln -C build build --detach -j6 all
+kiln -C build status            # running (pid, progress, memory), finished (exit code) or died
+kiln -C build log -f            # follow output until the build ends
+kiln -C build log --failures    # the full output of each failed command
+kiln -C build wait              # block; exits with the build's exit code
+kiln -C build stop              # as Ctrl-C would
+kiln -C build status --json     # for scripts
+```
+
+`tests/compat/detach_test.go` covers it: the full lifecycle (a second build fails fast naming the first, `-n` still works, `log -f` ends with the build), exit codes and a bad manifest, SIGHUP to the daemon's session, `kill -9` leading to *died* with the next build starting normally, and `stop`.
+
 **Memory scheduling.** `kiln -C build` keeps running jobs within a memory budget (see [problems/oom.md](problems/oom.md)). Useful flags: `--mem-budget 4G`, `--min-jobs N`, `--mem=off`, `-d sched` (print each decision). Machine defaults go in `~/.config/kiln/config.toml` (or `$KILN_CONFIG`):
 
 ```toml

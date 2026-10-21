@@ -30,8 +30,12 @@ type Config struct {
 	// (0: no limit).
 	MaxLoad float64
 	// Mem configures memory-aware scheduling.
-	Mem     MemConfig
-	Profile Profile
+	Mem MemConfig
+	// Observer, if set, is told how the build is going.
+	Observer Observer
+	// IgnoreHUP keeps a detached build running when its session gets SIGHUP.
+	IgnoreHUP bool
+	Profile   Profile
 }
 
 // Builder brings targets up to date. It is a port of Ninja's Builder.
@@ -120,7 +124,7 @@ func (b *Builder) Build() error {
 	defer b.status.buildFinished()
 	var clock *clockWatch
 	if !b.cfg.DryRun {
-		b.runner = newRunner(b.cfg.Parallelism, b.cfg.MaxLoad)
+		b.runner = newRunner(b.cfg.Parallelism, b.cfg.MaxLoad, b.cfg.IgnoreHUP)
 		defer b.runner.close()
 		defer b.removeLock()
 		clock = newClockWatch()
@@ -129,8 +133,13 @@ func (b *Builder) Build() error {
 			b.runner.wake = make(chan struct{}, 1)
 			b.mem.start(b.runner.wake)
 			defer b.mem.close()
+		} else if b.cfg.Observer != nil {
+			b.runner.wake = make(chan struct{}, 1)
+			defer b.startHeartbeat()()
 		}
 	}
+	b.report(true)
+	defer b.report(true) // the final counts
 	var dryQueue []*graph.Edge
 	pending := 0
 	failuresAllowed := b.cfg.FailuresAllowed
@@ -147,6 +156,9 @@ func (b *Builder) Build() error {
 				}
 				pending += n
 				capacity = 0
+				if n > 0 {
+					b.report(false)
+				}
 			}
 			for capacity > 0 {
 				e := b.plan.findWork()
@@ -189,7 +201,10 @@ func (b *Builder) Build() error {
 			} else {
 				var woke bool
 				if res, woke = b.runner.wait(); woke {
-					b.mem.tick()
+					if b.mem != nil {
+						b.mem.tick()
+					}
+					b.report(false)
 					continue
 				} else if res == nil || res.interrupted() {
 					b.checkClock(clock)
@@ -203,6 +218,10 @@ func (b *Builder) Build() error {
 				continue
 			}
 			err := b.finishCommand(res)
+			if !res.success() {
+				b.reportFailure(res)
+			}
+			b.report(false)
 			b.checkClock(clock)
 			if !res.success() {
 				b.exitStatus = res.status()

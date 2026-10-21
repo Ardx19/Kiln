@@ -13,12 +13,12 @@ import (
 // command line means: a target with one of these names is built with
 // `kiln build <name>`. As ninja (drop-in mode) there are no subcommands.
 var subcommands = map[string]func(p program, args []string, stdout, stderr io.Writer) int{
-	"build":   runNinja,
+	"build":   runBuildCmd,
 	"shim":    runShim,
-	"status":  nil,
-	"wait":    nil,
-	"log":     nil,
-	"stop":    nil,
+	"status":  runStatus,
+	"wait":    runWait,
+	"log":     runLog,
+	"stop":    runStop,
 	"mem":     runMem,
 	"install": nil,
 	"test":    nil,

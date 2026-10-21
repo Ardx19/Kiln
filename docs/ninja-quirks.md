@@ -109,6 +109,13 @@ None of this changes what runs or what the logs say. It only changes when comman
 - **Drop-in mode** schedules the same way. `KILN_MEM=off` or `--mem=off` gives plain Ninja behaviour for A/B runs; as `ninja` there are no kiln flags, so use the variable.
 - **State.** The memory history lives in `.kiln/mem.log` (`kiln mem top`, `kiln mem forget PATTERN`). Ninja never reads it.
 
+## Run directories and detached builds (M4)
+
+- **One build per tree.** A real build takes `.kiln/lock` (an `flock`, released when the process dies). A second build in the same directory fails at once and names the first (`another build is running ... (run ID, pid N)`). Ninja would let both run and corrupt `.ninja_log`. `-n` and the tools take no lock. `KILN_NO_LOCK=1` skips it, for a build that runs itself recursively. This also applies when kiln runs as `ninja`.
+- **`.kiln/` in every built tree.** `.kiln/runs/<id>/status.json` (rewritten about every 0.4 s), `failures/N.log`, and for detached builds `output.log`. Foreground builds write no `output.log`. The last 20 runs are kept. Ninja never reads it.
+- **`kiln build --detach`** starts a daemon (new session, stdin from `/dev/null`, output to `output.log`) and returns once it holds the lock. A bad manifest, or a build that ends before the handshake does, is reported by the command itself with the build's exit code. The daemon ignores SIGHUP, and so do its jobs (an ignored signal is inherited).
+- **Liveness is the lock.** `status` says *running* while the lock is held, *finished* with the exit code, or *died* if `status.json` says running and nobody holds the lock. `wait` exits with the build's code (124 on `--timeout`), `stop` sends SIGTERM after checking the pid's start time against `status.json`, so a reused pid can't be hit.
+
 ## Deliberate differences
 
 - **Drop-in mode is chosen by the program's name.** Run as `ninja` (`kiln shim DIR` makes the symlink), kiln is Ninja's command line, prints `ninja:` and reports version 1.13.2. Run as `kiln`, the names `build status wait log stop mem install test exec cache shim` are subcommands, and `kiln build <name>` builds a target with one of those names.

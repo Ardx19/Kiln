@@ -3,6 +3,7 @@ package main
 import (
 	"math"
 	"os"
+	"os/signal"
 	"runtime"
 	"runtime/debug"
 )
@@ -31,3 +32,6 @@ func delayGC() {
 		debug.SetMemoryLimit(math.MaxInt64)
 	})
 }
+
+// signalIgnore makes the process ignore sig, which children inherit.
+func signalIgnore(sig os.Signal) { signal.Ignore(sig) }

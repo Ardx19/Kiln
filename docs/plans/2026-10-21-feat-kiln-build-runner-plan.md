@@ -504,10 +504,12 @@ The finish line is **v0.3** (M1–M8). M9 stays a prioritized backlog.
   - `kiln stop` sends SIGTERM to the daemon.
   - `kiln status --json` is for scripts and agents.
 
+**Progress (2026-10-22): M4 is built.** `internal/run` (lock, run dirs, atomic `status.json`, liveness, safe `stop`), an `Observer` hook on the builder, `kiln build --detach` with a handshake, and `status`, `wait`, `log [-f] [--failures]` and `stop`. `tests/compat/detach_test.go` covers the acceptance items below. Still open: the manual check with every WSL window closed ([problems/detached.md](../problems/detached.md)), which needs you.
+
 **Acceptance**
-- [ ] A detached build survives SIGHUP to its session (scripted), an SSH disconnect, and the session teardown cases from the M0 spike. `status` shows progress and `wait` returns the build's exit code.
-- [ ] After `kill -9` of the daemon, `status` says *died* and the next build starts normally.
-- [ ] `log -f` returns when the build ends.
+- [x] A detached build survives SIGHUP to its session (scripted), and `status` shows progress while `wait` returns the build's exit code. *The SSH-disconnect and every-WSL-window-closed cases are the manual check from the M0 spike; they are still to do.*
+- [x] After `kill -9` of the daemon, `status` says *died* and the next build starts normally.
+- [x] `log -f` returns when the build ends.
 
 ### M5 — Benchmarks, docs, v0.1 (M)
 

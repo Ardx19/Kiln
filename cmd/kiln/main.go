@@ -21,6 +21,7 @@ import (
 	"github.com/Ardx19/kiln/internal/graph"
 	"github.com/Ardx19/kiln/internal/manifest"
 	"github.com/Ardx19/kiln/internal/metrics"
+	runstate "github.com/Ardx19/kiln/internal/run"
 	"github.com/Ardx19/kiln/internal/state"
 	"github.com/Ardx19/kiln/internal/sysinfo"
 )
@@ -67,6 +68,9 @@ func (p program) getoptName() string {
 
 func run(p program, args []string, stdout, stderr io.Writer) int {
 	if !p.dropIn {
+		if len(args) > 0 && args[0] == "__daemon" {
+			return runDaemon(p, args[1:], stdout, stderr)
+		}
 		if name, rest := splitSubcommand(args); name != "" {
 			return runSubcommand(p, name, rest, stdout, stderr)
 		}
@@ -94,7 +98,7 @@ const cycleLimit = 100
 // runBuild follows Ninja's main loop: load the manifest and logs, bring
 // the manifest itself up to date, and start over whenever that
 // regenerated it; then build the targets.
-func runBuild(p program, o options, stdout, stderr io.Writer) int {
+func runBuild(p program, o options, stdout, stderr io.Writer) (code int) {
 	if o.stats {
 		metrics.Enable()
 	}
@@ -112,6 +116,17 @@ func runBuild(p program, o options, stdout, stderr io.Writer) int {
 		}
 	}
 	warn := func(msg string) { fmt.Fprintf(stderr, "%s: warning: %s\n", p.name, msg) }
+	var obs build.Observer
+	if !o.dryRun && os.Getenv("KILN_NO_LOCK") == "" {
+		// One build at a time per tree, recorded for status, wait and log.
+		sess, err := runstate.Open(os.Getenv("KILN_RUN_ID"), o.targets, os.Getenv("KILN_RUN_ID") != "")
+		if err != nil {
+			fmt.Fprintf(stderr, "%s: error: %v\n", p.name, err)
+			return 1
+		}
+		obs = sessionObserver{sess}
+		defer func() { sess.Finish(code, "") }()
+	}
 	if fs := sysinfo.RemoteFilesystem("."); fs != "" {
 		warn("this build directory is on " + fs + ", which this machine reaches over a network or VM bridge. " +
 			"Every file check is slow, and timestamps can disagree with this machine's clock. " +
@@ -157,6 +172,8 @@ func runBuild(p program, o options, stdout, stderr io.Writer) int {
 			KeepRsp:         o.keepRsp,
 			MaxLoad:         o.maxLoad,
 			Mem:             memCfg,
+			Observer:        obs,
+			IgnoreHUP:       os.Getenv("KILN_RUN_ID") != "",
 			Profile:         t.profile,
 		}
 		scan := build.NewScanner(st, build.RealDisk{}, t.log, t.deps, explain)
