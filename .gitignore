@@ -1,0 +1,11 @@
+# build output
+/bin/
+
+# pinned tools downloaded by scripts/tools.sh
+/.tools/
+
+# scratch space for the compat harness and corpus checkouts
+/.work/
+
+# raw spike output (summaries live in docs/problems/)
+/spikes/*/out/

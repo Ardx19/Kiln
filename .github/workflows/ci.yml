@@ -1,0 +1,38 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 3 * * *" # nightly: medium-sized corpus projects
+  workflow_dispatch:
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make lint test
+
+  compat:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: make ci-run CI_TARGET=compat
+
+  corpus-small:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: make ci-run CI_TARGET="corpus PROJECTS='ninja fmt fmt-multi cxx-modules'"
+
+  corpus-nightly:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - run: make ci-run CI_TARGET="corpus PROJECTS='glib protobuf'"

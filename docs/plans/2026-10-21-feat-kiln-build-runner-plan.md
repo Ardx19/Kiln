@@ -1,0 +1,519 @@
+---
+title: "kiln: Ninja-compatible build runner — implementation plan"
+type: feat
+status: active
+date: 2026-10-21
+updated: 2026-10-21 (widened from RDKit to C/C++ projects in general)
+scope: ../../project_scope.md.txt
+---
+
+# kiln — implementation plan
+
+## Summary
+
+kiln is a runner for the Ninja manifests of C and C++ projects in general. That covers CMake (single- and multi-config, including C++20 modules), Meson, and hand-written or other generated `build.ninja` files, in any directory layout. RDKit is the case that motivated kiln and one of several validation projects. It is not the target.
+
+The plan has nine milestones plus a stretch list:
+
+- **v0.1 (M0–M5):** a native engine that shares state with whichever Ninja version a tree uses, drop-in use from `cmake --build` and `meson compile`, memory-aware scheduling, detached runs, and benchmarks on several projects.
+- **v0.2 (M6–M7):** transactional install, the declared environment and `kiln test`, for CMake and Meson trees.
+- **v0.3 (M8):** the shared cache.
+
+It targets Linux only, including WSL and containers.
+
+There is no code yet. The scope's status line implies Core, memory-aware scheduling and detached builds already exist, so mark them *(planned)* until they land.
+
+## What a general tool has to handle
+
+These findings come from Ninja's source (v1.10.1, v1.11.1, v1.12.1, v1.13.1), CMake 3.22's binary, this machine, and the local RDKit trees.
+
+| Area | Finding | Consequence |
+|---|---|---|
+| Ninja state versions | `.ninja_log` comes in three versions:<br>• **v5** up to Ninja 1.11: MurmurHash64A, records the output's mtime after the command.<br>• **v6** in 1.12: records the mtime of a lock file taken when the edge *started* (generator and `restat` rules excepted), so an input edited mid-build triggers a rebuild.<br>• **v7** from 1.13: command hash switched to rapidhash.<br>1.12 and 1.13 each discard a log of any other version ("starting over"), which rebuilds everything. `.ninja_deps` is v4 throughout | kiln must speak all three log versions, each with its own hash and mtime rules, and write back the version the tree already has |
+| Generators | CMake runs `ninja -t restat` and `-t recompact` on the build dir when it (re)generates. Meson locates Ninja through the `NINJA` variable and runs `ninja -t compdb` during setup. CMake's C++20 modules need Ninja ≥ 1.11 `dyndep`. CMake and Meson both emit `install` and `test` targets | The engine needs `dyndep`, `subninja`, `rspfile`, pools and `builddir`. Drop-in use needs those `-t` tools. kiln's subcommand names clash with real targets |
+| Machines | Laptops (often SMT with little RAM), WSL, and CI runners in containers. Inside a container, `/proc/meminfo` shows the **host's** memory; the real limit is the cgroup's. Some kernels have no cgroup v2 `memory.peak` and no PSI; this WSL 5.15 kernel has neither | Measure memory from `/proc` alone. Budget and pressure use the tighter of host memory and kiln's own cgroup limit. Default `-j` respects CPU affinity and cgroup CPU quota |
+| Directory layouts | Build dirs can be in-source, siblings, elsewhere, or several per source tree or git worktree. Manifests may have other names (`-f`). `builddir` moves the state files. Paths can contain spaces. CI source trees may be read-only. Some filesystems are slow or coarse (`/mnt/c` on WSL, NFS) | kiln assumes no layout. It writes only to the build dir, and to the install prefix during install. It warns on known-bad filesystems |
+| Install prefixes | Prefixes come in four kinds:<br>• dedicated (`~/opt/proj`)<br>• shared with other packages (`/usr/local`, a conda env, `~/.local`)<br>• in-tree, next to tracked sources (RDKit's `RDK_INSTALL_INTREE`)<br>• root-owned | Ownership must be **per file**, with rules that tell a variant of the same project apart from a different package or an unowned file. The commit is per file, with a journal |
+| Caching | ccache only helps when compile commands go through a launcher. Some projects set one up (`CMAKE_<LANG>_COMPILER_LAUNCHER`; Meson picks up ccache automatically), many don't | Manage ccache's settings, and optionally inject the launcher |
+
+**The motivating case, as one data point.** On this machine (Ryzen 5 5500U, 6 cores and 12 threads, 11.7 GiB RAM, WSL2), each RDKit tree has about 5,600 edges and about 10 job-hours per cold build, with single compiles up to 4 minutes. Three lessons generalize:
+
+- **The speed gain has a ceiling.** On SMT machines the hand-tuned `-j` is usually the physical core count, so memory-aware scheduling can only add SMT throughput (tens of percent). The headline is **no OOM without hand-tuning**.
+- **Variant trees really do leave files behind.** RDKit's Boost and nanobind trees share 286 installed paths. Switching between them leaves 66 or 57 stale files, and 142 of the paths are symlinks.
+- **Big projects already hand-tune memory.** LLVM documents `LLVM_PARALLEL_LINK_JOBS` for machines that run out of memory while linking, which is the same problem in another project.
+
+## Decisions
+
+These are recommendations. Confirm or override them before starting M0. The rest of the plan assumes them.
+
+- **D1. Language: Go.** It's installed (1.25.1) and you already use it (`agent_eval_harness`). Siso, Chromium's Ninja-compatible runner, is written in Go. `golang.org/x/sys/unix` covers `Wait4`, `Setpgid`/`Setsid`, `Flock` and `Renameat2`, and the output is a single static binary for CI runners. Keep dependencies to the stdlib, `x/sys` and one TOML parser.
+  *Alternatives:* Rust (n2 is a good reference, but needs a toolchain install), or a C++ fork of Ninja (the quickest way to exact compatibility, but its design fights the daemon, install and test features).
+- **D2. Share Ninja's state files, in every version.**
+  - Read `.ninja_log` v5, v6 and v7 and `.ninja_deps` v4. Write back the version found, using that version's hash (MurmurHash64A or rapidhash) and mtime rule.
+  - For a tree with no log yet, use the version of the Ninja the tree is configured with: `CMAKE_MAKE_PROGRAM`, then Meson's `NINJA`, then `ninja` on `PATH`. Default to v7.
+  - Honour `builddir` for where the files live. Never write a version kiln doesn't know; fall back to private state with a warning instead.
+  - Why: switching between `ninja` and `kiln` must cost nothing in any tree, generators run real Ninja tools against these files, and `ninja -t …` keeps working without kiln reimplementing it.
+- **D3. Linux only**, including WSL and containers. macOS and Windows aren't planned.
+- **D4. Two support tiers.**
+  - **Tier 1, full support:** CMake (`Ninja` and `Ninja Multi-Config`, including C++20 modules) and Meson. This covers the engine and the install and test integration.
+  - **Tier 2, engine only:** any other Ninja manifest (hand-written, GN and others). Build, memory scheduling, detach and cache all work. `kiln install` and `kiln test` need a configured command; for install, that command must honour `DESTDIR`.
+- **D5. Shared cache = managed ccache, with optional launcher injection.**
+  - kiln can prepend `ccache` at run time to compile edges that call a known compiler directly (gcc, g++, cc, c++, clang, clang++ and cross variants) and have no launcher. The Ninja command hash stays computed on the manifest's own command, so the state remains valid for Ninja.
+  - sccache comes later. A native content-addressed cache waits for traced execution (stretch), because caching arbitrary edges safely needs complete input knowledge.
+- **D6. Install = per-file ownership with a journaled commit.** Stage with `DESTDIR` through `cmake --install` or `meson install`, then commit through a journal. M6 has the full rules.
+- **D7. Licence.** The README says TBD. Pick one before publishing or porting test cases. Apache-2.0 matches Ninja and n2.
+
+## Scope notes
+
+These are small adjustments to the scope, proposed here so they don't surprise anyone later:
+
+1. **README status markers.** See the Summary.
+2. **Generalize the README.** "kiln runs the `build.ninja` files that CMake already generates" should become "CMake, Meson, or any Ninja manifest". Take the "Why" examples and the benchmarks from more than one project, for instance LLVM's link-memory problem next to RDKit's heavy compiles, so the README doesn't read as an RDKit tool.
+3. **Name clash.** CMake and Meson trees both have `install` and `test` targets. Reserved subcommand names win, and `kiln build <target>` builds a target with that name.
+4. **Additions.**
+   - `kiln stop`
+   - `kiln exec -- <cmd>`, to configure under the declared environment (`cmake`, `meson setup`, `./configure`)
+   - `status --json` and `log --failures`
+   - drop-in mode (M2)
+5. **Benchmarks.** Report per project and per machine profile, with separate *first run* and *learned* rows.
+6. **Cache wording** follows D5.
+
+## Architecture
+
+```
+cmd/kiln/            argv parsing (Ninja flags -C -f -j8 -k0 -l -n -v -d -t), subcommand dispatch
+internal/manifest/   lexer, parser, scopes (include/subninja), evaluation, path canonicalisation
+internal/graph/      node/edge arena, pools, phony, validations, dyndep, cycle detection
+internal/state/      .ninja_log v5/v6/v7 (MurmurHash64A, rapidhash), .ninja_deps v4, recompaction
+internal/dirty/      Ninja's dirty rules for each state version + explain reasons
+internal/plan/       wanted set, ready queue, critical-path priority
+internal/sched/      admission: pools, -j ceiling, --min-jobs floor, memory budget, brake
+internal/exec/       /bin/sh -c in own process group, output capture, rspfile, depfile, restat
+internal/memprobe/   /proc sampler, per-job peak, host + cgroup memory, OOM counters
+internal/memdb/      .kiln/mem.log history + predictor
+internal/tools/      -t restat/recompact/compdb natively; other -t passed to a real ninja
+internal/generator/  detect CMake / Meson / other; project name, install + test backends
+internal/run/        lock, run dirs, daemon (re-exec + setsid), status.json, log follow
+internal/install/    staging, ownership records, journal                (M6)
+internal/envdecl/    declared environment, per-edge env hash            (M7)
+internal/testrun/    CTest / meson test / custom runner, JUnit, xfail   (M7)
+internal/cache/      ccache settings, launcher injection, stats         (M8)
+tools/genfixture/    synthetic project generator (CMake, Meson, raw ninja)
+tests/compat/        differential suite against several Ninja versions
+bench/               benchmark scripts and results
+```
+
+**On-disk layout**
+
+```
+<build dir>/                       anywhere, any name
+  build.ninja (or -f <file>)       the generator's; kiln only reads it
+  .ninja_log, .ninja_deps          shared with ninja (under $builddir if set)
+  .kiln/
+    lock                           flock held by whoever is building (also the liveness signal)
+    mem.log, env.log               per-output memory history and env hash
+    config.toml, xfail.txt         tree settings (M7)
+    tree-id                        UUID identifying this tree (M6)
+    runs/<id>/{status.json,output.log,failures/}, runs/latest
+<install prefix>/
+  .kiln/owners.json, owners.lock   per-file ownership records (M6)
+  .kiln/txn/<id>/{stage/,backup/,journal.json}
+~/.config/kiln/config.toml         machine defaults: budget, cache dir
+```
+
+**One build, end to end**
+
+1. Take `.kiln/lock`. If another build holds it, fail fast and name its run id.
+2. Load the manifest. If the manifest is itself out of date, build it first, reload the manifest and the state, and repeat with a bound on the number of tries.
+3. Load the state files in their own version, then compute the dirty set for the requested targets.
+4. Admit ready edges in critical-path order while there's a pool slot, `-j` headroom and memory budget.
+5. Run each edge with `/bin/sh -c` in its own process group (console-pool edges get the terminal) while the sampler tracks its process tree.
+6. When an edge finishes:
+   - ingest the depfile or dyndep file
+   - restat its outputs
+   - append to the logs
+   - release its reservation
+   - update the status
+7. On failure, stop admitting (unless `-k`), drain the running jobs and exit non-zero. On SIGINT, kill the job process groups and flush the logs.
+
+## Validation corpus
+
+Built in M0 and used by every milestone after it.
+
+| Project | Focus | Size | Runs in |
+|---|---|---|---|
+| `genfixture` output | CMake, Meson and raw-ninja fixtures covering every feature, plus random edit scripts | tiny | CI, every push |
+| Ninja's own repo (`configure.py`) | A non-CMake, hand-written-style manifest | small | CI |
+| fmt | CMake, single- and multi-config | small | CI |
+| C++20 modules sample | CMake ≥ 3.28, Ninja ≥ 1.11 `dyndep`, Clang ≥ 16 or GCC ≥ 14 | tiny | CI container |
+| GLib 2.90.1 | Meson, code generation, `meson install` and `meson test` | medium | nightly |
+| protobuf v36.2 | CMake, heavy code generation, many targets | medium | nightly |
+| RDKit (your 11 local trees) | CMake, compile-heavy translation units, in-tree install, Python | large | local |
+| LLVM + Clang | CMake, link-heavy memory (the `LLVM_PARALLEL_LINK_JOBS` case) | large | local or nightly |
+
+**Tool matrix:**
+
+- Ninja 1.11 (v5), 1.12 (v6) and 1.13 (v7), pinned with release binaries or the PyPI `ninja` wheels
+- CMake 3.22 (local) and the newest release
+- current Meson
+- GCC and Clang
+
+## Milestones
+
+Rough sizes for one developer: **S** ≤ 1 week, **M** ≈ 2 weeks, **L** ≈ 4+ weeks.
+
+| Milestone | Size | Depends on | Release |
+|---|---|---|---|
+| M0 Foundations and corpus | M | — | — |
+| M1 Core engine | L | M0 | v0.1 |
+| M2 Drop-in integration | S | M1 | v0.1 |
+| M3 Memory-aware scheduling | M–L | M1 | v0.1 |
+| M4 Detached runs | S–M | M1 | v0.1 |
+| M5 Benchmarks, docs, release | M | M2–M4 | v0.1 |
+| M6 Transactional install | M–L | M1 | v0.2 |
+| M7 Declared environment + `kiln test` | M | M1 | v0.2 |
+| M8 Shared cache | S–M | M7 | v0.3 |
+| M9 Stretch | — | — | — |
+
+M2, M3 and M4 depend only on M1, so they can run in parallel, for example in separate worktrees or by separate agents.
+
+### M0 — Foundations and corpus (M)
+
+**Tasks**
+- **Repo and CI.** `git init`, a Go module, and CI running `gofmt`, `go vet`, `staticcheck` and `go test -race ./...`, in container images that carry the tool matrix.
+- **`tools/genfixture`.** Emits CMake, Meson and raw-ninja projects covering:
+  - static, shared and module libraries and executables, with a random header DAG
+  - code generation with `restat` and depfiles
+  - response files, custom pools and the console pool
+  - phony targets, `default` and order-only deps
+  - `include`/`subninja` and `builddir`
+  - an install rule, plus a variant B that installs a partly different file set
+  - tests with known pass and fail results
+- **`tests/compat` harness.**
+  - Runs an edit script under a pinned Ninja and under kiln, starting from the same snapshot.
+  - Restores between runs with `cp -a` at the **same absolute path**, because generators bake absolute paths into trees.
+  - Compares two things: the dry-run edge sets, and the edges actually run (the new log lines).
+  - Self-test: Ninja against Ninja shows zero differences, for every Ninja version.
+- **Corpus scripts.** Fetch, configure (pinned commits and options) and build each corpus project with each relevant tool combination.
+- **Memory spike (½ day).** Measure peak RSS of the 8–20 slowest compiles in a large tree (RDKit is on hand), twice each, with `CCACHE_DISABLE=1` and outputs sent to scratch paths. This confirms that peak RSS is stable from run to run and sizes the default estimate. Add one big link, such as clang, once an LLVM tree exists.
+- **Detach spike (1 h).** Check whether a `setsid` process survives:
+  - closing every WSL terminal
+  - logging out on a systemd host with `KillUserProcesses=yes`
+
+  The result picks the approach: `setsid` alone, `systemd-run --user --scope`, or documenting `loginctl enable-linger`.
+
+**Acceptance** (status as of 2026-10-21)
+- [ ] CI is green on GitHub. *Partly done.*
+  - The image carries Ninja 1.11.1, 1.12.1 and 1.13.2, CMake 3.22.6 and 4.4.4, Meson 1.12.1, GCC 14 and Clang 18.
+  - It builds locally, and `lint`, `test` and `compat` all pass inside it.
+  - The repo has no GitHub remote yet, so the workflow hasn't run.
+- [x] genfixture's CMake, Meson and raw-ninja outputs build under every Ninja in the matrix, plus the system Ninja 1.10.1.
+- [x] The harness self-test passes for every Ninja version. Clock-step retries are needed on WSL ([problems/clock-steps.md](../problems/clock-steps.md)), and one Ninja < 1.12 behaviour is logged as a known quirk ([ninja-quirks.md](../ninja-quirks.md)).
+- [ ] Every corpus project configures and builds with plain Ninja from the scripts. *Partly done.*
+  - Built: `ninja`, `fmt`, `fmt-multi`, GLib 2.90.1 and protobuf v36.2 (locally), and `cxx-modules` (in the CI image).
+  - Pins verified but not built yet (hours each): `rdkit` and `llvm`.
+- [ ] Spike results are written up in `docs/problems/`. *Nearly done.*
+  - Memory: [oom.md](../problems/oom.md).
+  - Detach: [detached.md](../problems/detached.md). The manual "close every WSL window" check is still open.
+
+### M1 — Core engine (L)
+
+**Tasks**
+1. **Lexer and parser** for the full Ninja language, fuzzed:
+   - variables, `rule`, `default` and `pool` (with depth)
+   - `build` with explicit inputs, `|` implicit inputs, `||` order-only inputs, `|` implicit outputs and `|@` validations
+   - `include` (shared scope) and `subninja` (child scope)
+   - escapes, `${var}`, `ninja_required_version` and `builddir`
+2. **Evaluation.** Use Ninja's variable lookup order. Shell-escape `$in` and `$out`, and support `$in_newline` and `rspfile`/`rspfile_content`. Canonicalise paths exactly as Ninja does, without resolving symlinks.
+3. **Graph.**
+   - Phony semantics, validations, and cycle reports that print the cycle.
+   - `dyndep`: load the dyndep file once its edge has run, and splice in the implicit inputs and outputs it lists. CMake's C++20 modules and Fortran depend on this.
+4. **State.**
+   - Port the v5, v6 and v7 build-log code (MurmurHash64A and rapidhash), the v4 deps log, and recompaction from Ninja.
+   - For v6+, implement the start-time lock file that sets the recorded mtimes.
+   - Never mix versions within one file.
+5. **Dirty computation**, following each version's rules:
+   - which mtime counts: the output's for v5, the recorded start mtime for v6+
+   - the generator and `restat` exemptions
+   - missing log entries, command changes, missing or stale deps, `restat` pruning, and order-only inputs
+6. **Executor.**
+   - Run `/bin/sh -c` in its own process group. Console-pool edges get the terminal.
+   - Give each job one buffered pipe for its output, and read `wait4` rusage when it exits.
+   - Depfiles: with `deps = gcc`, ingest the depfile into the deps log and then delete it. A depfile without `deps` is re-read when the graph loads.
+   - Write each rspfile before its job and remove it after.
+   - Support `-k`, `-n`, `-v` and `-l`, and handle SIGINT and SIGTERM.
+7. **Manifest regeneration.** Build edges that produce the manifest first, then reload the manifest **and the state**, because generators run Ninja tools during regeneration. Bound the number of rounds. In dry-run mode, return after the "regeneration" as Ninja does.
+8. **Output.** A status line that honours the `NINJA_STATUS` format, `-d explain`, `-d keepdepfile` and `-d keeprsp`.
+9. **Critical-path priority** from log durations.
+10. **Defaults.** `-j` = available CPUs + 2, where "available" respects CPU affinity and the cgroup CPU quota. Warn when the build dir is on drvfs (`/mnt/c`) or NFS.
+11. **Clock steps.** Watch the wall clock against the monotonic clock during a build, and warn when it steps. On this WSL machine it jumps back about 1.8 s every 30 s, which makes any mtime-based decision depend on timing ([problems/clock-steps.md](../problems/clock-steps.md)).
+12. **Known Ninja quirks.** For each behaviour in [ninja-quirks.md](../ninja-quirks.md), decide whether kiln mirrors it or improves on it. An example is Ninja ≤ 1.11 leaving a `restat` edge dirty forever when the deps log has lost the entry for its depfile-only inputs. Improving is only allowed where real Ninja, reading kiln's state, still sees nothing to rebuild.
+
+**Acceptance**
+- [ ] Every corpus manifest parses without errors, for all generators and Ninja versions.
+- [ ] **Hashes match.** For every edge that Ninja considers clean, kiln's command hash equals the logged one. This must hold for MurmurHash64A trees (v5/v6) and rapidhash trees (v7).
+- [ ] **Deps match.** kiln's reading of each `.ninja_deps` equals `ninja -t deps` output.
+- [ ] **Dry runs agree.** On every corpus tree as it stands, kiln and Ninja choose the same edges, for each Ninja version.
+- [ ] **Differential suite** shows zero divergences across edit scenarios × generators × Ninja versions. The scenarios are:
+  - touch a source, touch a header, edit a header
+  - add or remove an `#include`
+  - change a flag (regeneration)
+  - delete an output, delete `.ninja_deps`
+  - interrupt mid-build and resume
+  - mass mtime change (branch switch)
+  - a `restat` no-op
+  - a module interface change (`dyndep`)
+  - a multi-config build
+  - `rspfile` edges
+  - an input edited while its edge runs (v6+ semantics)
+- [ ] **Tool-switch invariant**, for each Ninja version:
+  - after a Ninja build, `kiln` has no work to do
+  - after a kiln build, `ninja` has no work to do
+  - the log version never changes
+- [ ] **Layout matrix passes:**
+  - in-source and out-of-source build dirs, including one outside the source tree
+  - several build dirs per source, and git worktrees
+  - relative `-C`, `-f` with a non-default manifest, and `builddir`
+  - paths with spaces, a symlinked build dir, and a read-only source tree
+- [ ] Full builds of the large corpus projects at a conservative `-j` succeed, and test results match Ninja-built trees.
+- [ ] A no-op build of the largest corpus tree is within 1.5× of Ninja's time. Load time on a 500k-edge synthetic manifest is within 1.5× of Ninja's.
+
+### M2 — Drop-in integration (S)
+
+**Tasks**
+- `kiln --version` prints a Ninja-compatible version: the newest Ninja whose features kiln fully supports. Installed or symlinked as `ninja`, kiln accepts Ninja's whole CLI.
+- Implement natively the `-t` tools that generators call: `restat`, `recompact`, `cleandead` and `compdb`. CMake calls the first two. Meson's regeneration calls `restat` and `cleandead`, and its setup calls `compdb` (seen in M0). Pass any other `-t` tool to a real Ninja on `PATH`; its output is correct because the state is shared. With no Ninja on `PATH`, give a clear error.
+- Document the three ways in: `-DCMAKE_MAKE_PROGRAM=$(command -v kiln)`, `NINJA=kiln meson setup …`, or a `ninja` symlink early on `PATH`.
+
+**Acceptance**
+- [ ] With `CMAKE_MAKE_PROGRAM` pointing at kiln, `cmake --build` builds the CMake corpus projects, including a regeneration after editing `CMakeLists.txt`.
+- [ ] With `NINJA=kiln`, `meson setup` and `meson compile` build the Meson corpus project, and `compile_commands.json` matches what real Ninja produces.
+- [ ] Switching `CMAKE_MAKE_PROGRAM` between ninja and kiln in one tree causes no rebuild.
+
+### M3 — Memory-aware scheduling (M–L)
+
+**Design**
+- **Probe.**
+  - Each job has its own process group. A sampler ticks every 100 ms (configurable) and walks each job's tree via `/proc/<pid>/task/<tid>/children`, falling back to scanning `/proc` by pgid.
+  - Each tick it sums RSS from `statm` and notes process names (`comm`), so compiler backends can be told apart.
+  - Job peak = max of three values: the sampled tree sum, the largest per-process `VmHWM` seen, and `wait4` `ru_maxrss`.
+  - Sampling catches processes running at the same time (`-pipe`, LTO). `VmHWM` and `ru_maxrss` catch spikes between ticks.
+- **Memory sources.**
+  - kiln always reads host `MemAvailable`. When it runs in a memory-limited cgroup (containers, CI, systemd slices), it also reads that cgroup's limit and usage: `memory.max`/`memory.current` on v2, `memory.limit_in_bytes`/`usage_in_bytes` on v1.
+  - Budget: `--mem-budget`, or config. The default is 90% of the tighter headroom at start.
+  - OOM signal: the cgroup's `memory.events` `oom_kill` when available, else `/proc/vmstat` `oom_kill`.
+- **History.** `.kiln/mem.log` holds append-only lines keyed by first output: peak KiB, duration, command hash and flags. It is compacted like the Ninja log.
+- **Predictor.**
+  - **Per output:** keep a guarded maximum plus a 10% margin. Any observation can raise it. Only full-size runs can lower it, and only slowly. A full-size run is one with a usual duration, or one where a compiler backend appeared in the tree.
+  - **Why the guard:** a ccache hit uses about 10 MB and must not erase what a real compile needs.
+  - **No history:** fall back, in generator-agnostic order:
+    1. same rule and same output directory (which approximates "same target" in CMake, Meson and GN layouts)
+    2. same rule
+    3. same kind, classified from the command: compile, link, archive, codegen or other
+    4. a default sized from the M0 spike
+  - **Cold builds:** update these aggregates during the build, so a first build learns as it goes.
+- **Admission.**
+  - Take ready edges in priority order. Start one if its pool has a slot, fewer than `-j` jobs are running, and reserved + predicted ≤ budget.
+  - `--min-jobs` (default 1) always runs, so nothing deadlocks. An edge predicted above the whole budget waits until it can run alone.
+  - Smaller jobs may backfill past a blocked big one until the big one has waited too long or is on the critical path.
+  - Hold each reservation until its job exits. In the M0 spike, compile peaks came at 83–99% of runtime, so releasing early is unsafe.
+- **Pressure brake.**
+  - Each tick, check the tighter of the memory sources and how much swap is in use.
+  - Below a low watermark, stop admitting.
+  - Below a critical watermark, kill the youngest job's process group and requeue it with a raised estimate. A misprediction then costs one job's progress, instead of the kernel killing a random compiler.
+- **OOM accounting.** A failed job counts as OOM-killed if the OOM counter rose while it ran, or its output says `Killed signal terminated program`. Retry it once with 1.5× its observed peak.
+- **CLI.**
+  - `--mem-budget`, `--min-jobs`, `-j`
+  - `--mem=off` (plain Ninja behaviour, for A/B runs)
+  - `kiln mem top [N]` and `kiln mem forget <pattern>`
+
+**Acceptance**
+- [ ] **Simulation suite.** The admission policy is a pure function, tested with a simulated clock and synthetic job profiles. It never exceeds the budget by prediction, bounds starvation, respects `--min-jobs` and `-j`, and runs oversized jobs alone.
+- [ ] **Container test, no flags.** Inside `docker run --memory=2g`, kiln finds the 2 GiB limit by itself and completes the memhog fixture (jobs that touch N MiB for T seconds), with measured peak below the limit. `ninja -j8` gets OOM-killed.
+- [ ] Sampler overhead is under 1% of one core with 14 concurrent jobs.
+- [ ] **Headline**, on two machine profiles: the WSL laptop and a small-runner container (for example 4 CPUs and 8 GiB).
+  - At default settings, RDKit (compile-heavy) and LLVM (link-heavy) see **zero OOM kills** on both the first run and the learned run.
+  - The learned run is no slower than the best hand-tuned setting (`-jN`, or `LLVM_PARALLEL_LINK_JOBS` for LLVM).
+
+### M4 — Detached runs (S–M)
+
+**Design**
+- **Run directory.** Every build, foreground too, gets `.kiln/runs/<id>/` with:
+  - `status.json`, rewritten atomically about once a second: state, pid, targets, done/total, running jobs with their RSS, budget/reserved, failures
+  - `output.log`
+
+  `runs/latest` points at the newest run. Keep the last N runs.
+- **`kiln build --detach [targets]`.**
+  - Re-execs `kiln __daemon` with `Setsid`, stdin from `/dev/null`, and output to the run log. When the M0 spike shows session teardown kills such processes, it starts inside `systemd-run --user --scope` instead.
+  - The parent waits until the daemon holds the lock and has written its first status, so errors like a bad manifest are still reported synchronously.
+  - Then it prints the run id and exits.
+- **Liveness is the lock.** `status` reports *running* while the lock is held, *finished* (with the exit code) from `status.json` otherwise, and *died* if `status.json` says running but the lock is free. A lock can't go stale, because `flock` is released when the process dies.
+- **Commands.**
+  - `kiln wait [--timeout]` blocks on the lock, then exits with **the build's exit code**.
+  - `kiln log [-f] [--failures]`: `-f` stops when the build ends.
+  - `kiln stop` sends SIGTERM to the daemon.
+  - `kiln status --json` is for scripts and agents.
+
+**Acceptance**
+- [ ] A detached build survives SIGHUP to its session (scripted), an SSH disconnect, and the session teardown cases from the M0 spike. `status` shows progress and `wait` returns the build's exit code.
+- [ ] After `kill -9` of the daemon, `status` says *died* and the next build starts normally.
+- [ ] `log -f` returns when the build ends.
+
+### M5 — Benchmarks, docs, v0.1 (M)
+
+**Tasks**
+- **`bench/`** reproduces the tables per project (RDKit, LLVM and one medium project) and per machine profile (WSL laptop, small-runner container).
+  - Runners: plain Ninja at default `-j`, the best hand-tuned setting, kiln first run, kiln learned.
+  - Measurements: wall time, system peak RAM, and OOM kills, with a cold cache.
+- **Running them.** Cold builds of the large projects take hours, so run the full matrix overnight and iterate on heavy subsets (the heaviest targets by history).
+- **`DESIGN.md`:** architecture, state compatibility across Ninja versions, the scheduler model (probe → predictor → admission → brake), and the run lifecycle.
+- **`docs/problems/`:** one write-up per problem, with examples from more than one project.
+- **README:** general wording, status markers, the name clash, drop-in usage, and the licence.
+- **Release:** tag `v0.1.0` with static Linux amd64 and arm64 binaries.
+
+**Acceptance**
+- [ ] Benchmark tables are filled for at least two large projects and two machine profiles, with the commands that reproduce them.
+- [ ] Every README usage line for shipped features works as written.
+
+### M6 — Transactional install (M–L)
+
+**Ownership model**
+- **Install set** = (project, tree).
+  - Project is CMake's `CMAKE_PROJECT_NAME` or Meson's project name, and can be overridden.
+  - Tree is the UUID in `<build>/.kiln/tree-id`.
+- **Records** live in `<prefix>/.kiln/owners.json`: for each install set, its files with hashes and symlink targets.
+- **Rules when tree T of project P installs:**
+  1. Files T installed last time but no longer produces are removed. Files left behind after a rename are a problem even with only one tree.
+  2. Files owned by another tree of P (a variant: Debug vs Release, Boost vs nanobind, another worktree) are refused unless `--swap`. `--swap` removes that tree's whole set, including files T doesn't produce.
+  3. Files owned by a different project are refused. `--force` takes over just those files.
+  4. Existing files that nobody owns (installed before kiln, or by a package manager) are adopted silently if the content is identical. Otherwise they're refused unless `--adopt`.
+  5. A file about to be deleted must still match its recorded hash. Modified files block the install and are listed, unless `--force`.
+
+**Protocol**
+1. Build.
+2. **Stage** with `DESTDIR=<stage> cmake --install <build>` or `meson install -C <build> --destdir <stage>`, on the prefix's filesystem so the commit is all renames. Snapshot the prefix before and after, to catch install scripts that ignore `DESTDIR`.
+3. **Plan** by applying the rules above. `--dry-run` prints the plan.
+4. **Commit** through `journal.json`:
+   - move each existing destination into `backup/`
+   - rename each staged file or symlink into place
+   - move stale files into `backup/`
+   - write `owners.json` atomically
+   - fsync, mark the journal committed, and delete `backup/`
+5. **Recover.** Roll back or forward on the next run, or explicitly with `kiln install --recover`.
+6. **Root-owned prefixes.** Run `kiln install --stage` as the user, then `sudo kiln install --commit <txn>`. The commit step runs no build commands.
+7. **Safety.**
+   - `flock` on `owners.lock`.
+   - Deduplicate manifests.
+   - Install symlinks as symlinks.
+   - Remove directories only if they're empty.
+   - Never delete git-tracked files when the prefix is a checkout, and add `.kiln/` to `.git/info/exclude` there.
+
+**Acceptance**
+- [ ] Fixture variants A and B, under both CMake and Meson: installing B over A is refused, and `--swap` leaves exactly B's set.
+- [ ] Reinstalling after renaming an installed library removes the old file.
+- [ ] Two different projects coexist in one shared prefix, and a file both would install is refused.
+- [ ] **Crash injection.** A test hook can `kill -9` kiln at every commit step. Recovery always leaves the prefix exactly in the old or the new state, never a mix.
+- [ ] A root-owned prefix works through `--stage` and `--commit`.
+- [ ] RDKit's in-tree Boost↔nanobind swap leaves none of the 66 or 57 stale paths, and `import rdkit.Chem` works in both directions.
+
+### M7 — Declared environment and `kiln test` (M)
+
+**Design**
+- **Config** lives in `<build>/.kiln/config.toml`, with machine defaults in `~/.config/kiln/config.toml`. Sketch:
+  ```toml
+  [env.set]
+  PYTHONNOUSERSITE = "1"
+  PKG_CONFIG_PATH = "/opt/deps/lib/pkgconfig"
+  [env.prepend]
+  PATH = ["/opt/toolchains/gcc-13/bin"]
+  LD_LIBRARY_PATH = ["/opt/deps/lib"]
+  [env]
+  unset = ["PYTHONPATH", "CPATH", "LIBRARY_PATH"]
+  ```
+- **Where it applies.** Every process kiln spawns, and `kiln exec -- <cmd>`, which exists so configure (`cmake`, `meson setup`, `./configure`) sees the same environment as the build.
+- **Rebuild on change.** `.kiln/env.log` records the env hash each output was built with, and an edge is dirty if it differs. The hash deliberately stays **out of** `.ninja_log`, so the Ninja no-op invariant survives.
+- **`kiln test` backends:**
+  - **CTest:** `ctest --test-dir <build> --output-junit …` (needs CMake ≥ 3.21)
+  - **Meson:** `meson test -C <build>`, reading the JUnit file in `meson-logs/`
+  - **custom:** a `[test] command` with an optional JUnit path
+- **Results.** Compare against `.kiln/xfail.txt` (test name or regex, plus a reason). Exit 0 when only expected failures fail. An XPASS (expected failure that passes) is a warning, or an error with `--strict`.
+
+**Acceptance**
+- [ ] **Leak test.** Plant a stub package in a fake user site, plus stray `PKG_CONFIG_PATH` and `CPATH` entries. Builds and tests under kiln never see them; plain `ninja` and `ctest` do.
+- [ ] Changing the environment rebuilds the affected edges, and Ninja still reports no work afterwards.
+- [ ] `kiln test` handles xfail correctly on one CMake and one Meson corpus project.
+- [ ] Tests run without a hand-set `LD_LIBRARY_PATH`.
+
+### M8 — Shared cache (S–M)
+
+**Design**
+- **Settings.** `base_dir`, `dir`, `max_size` and `hash_dir` come from config and are exported to compile edges. kiln can suggest `base_dir` from the common parent in `git worktree list`.
+- **Launcher injection** is opt-in (`[cache] inject = true`) and follows D5. Edges kiln can't classify are reported as uncacheable.
+- **Stats.** Each build reports its hit rate from ccache stats deltas. `kiln cache stats|trim` shows size against the limit and eviction churn.
+
+**Acceptance**
+- [ ] Cold build of a second worktree, on two corpus projects: hit rates for plain ccache vs kiln-managed.
+- [ ] Injection produces cache hits for a project configured without a launcher, and Ninja still sees the tree as up to date afterwards.
+- [ ] A deliberately undersized cache shows churn in `kiln cache stats`.
+
+### M9 — Stretch (unscheduled)
+
+- **Content hashing instead of mtimes.** kiln has to bump output mtimes so Ninja keeps agreeing.
+- **Traced execution** to catch undeclared dependencies. It's the prerequisite for a native action cache.
+- **CPU-aware admission** for LTO and multi-threaded links, using learned CPU time per edge.
+- **A per-job cgroup v2 probe and enforcement**, on hosts that support it.
+- **A jobserver that hands out tokens by memory**, so nested builds (ExternalProject, superbuilds) respect the budget.
+- **Memory-aware test scheduling** and EASY backfilling.
+- **macOS.**
+
+## Testing strategy
+
+- **Unit tests and fuzzing:** the lexer, parser, depfile parser and dyndep parser, plus state-file round-trips for v5, v6 and v7.
+- **Differential tests:** corpus × edit scripts × Ninja versions, in both dry-run and real-run mode, plus the tool-switch invariant for each version.
+- **Real-tree checks** on every corpus tree: command hashes, deps and dry runs. They're read-only and cheap, so run them often.
+- **End-to-end tests:**
+  - memhog in memory-limited containers
+  - the detached-run lifecycle
+  - install crash injection, shared prefixes and root-owned prefixes
+  - environment leaks
+
+## Risks
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| Ninja semantics differ by version (v5 vs v6+ mtimes, hash functions) | Wrong rebuilds, or Ninja discarding the log | Separate state code for each version. Differential suite on every version. Never mix versions in one file |
+| A future Ninja changes the formats again | kiln can't share state | Version guard with private-state fallback. Track upstream releases |
+| Generator quirks (Meson, GN, hand-written) | Parse or semantic gaps | Support tiers. Corpus covers each generator. Clear errors |
+| Containers hide the real memory limit | OOM in CI | cgroup-aware budget, plus the container acceptance test |
+| Memory isn't predictable (ccache hits, flag changes) | OOMs, or needless serialisation | M0 spike checks the premise. Guarded maximum. Brake plus kill-and-requeue as the safety net |
+| Sampling misses short spikes | Underestimates | Per-process `VmHWM` and `wait4` maxrss as floors, plus a 10% margin |
+| The wall clock steps (seen on WSL: −1.8 s every 30 s) | Missed or endless rebuilds, for Ninja too | Detect steps and warn (M1). Document the timesyncd fix. Content hashing (M9) |
+| Session teardown kills detached builds (WSL, logind) | `--detach` fails | M0 spike, a systemd scope, documentation |
+| SMT caps the speed gain | Underwhelming speed numbers | Lead with "zero OOM, no tuning". Report speed honestly |
+| Install scripts ignore `DESTDIR` | Staging bypassed | Snapshot the prefix before and after staging, and warn |
+| Deleting files in shared or in-tree prefixes | Data loss | Per-file ownership, hash checks, journal and backup, git-tracked guard, `--dry-run` |
+| Launcher injection misreads a command | Broken compiles | Opt-in, direct compiler calls only, uncacheable edges reported |
+| Large corpus builds are slow | Slow iteration | Overnight runs and heavy subsets |
+| Scope creep | v0.1 slips | v0.1 is M0–M5 only |
+
+## Open questions
+
+- Should Tier 2 manifests get install and test integration through configured commands, or stay engine-only?
+- Config split: build-dir config plus user config, or also a project-level file in the source tree shared by every worktree?
+- Which Ninja version should drop-in mode report while kiln lacks some newer Ninja feature?
+
+## References
+
+- Scope: [`project_scope.md.txt`](../../project_scope.md.txt)
+- Ninja manual: https://ninja-build.org/manual.html
+- Ninja source: https://github.com/ninja-build/ninja
+  - `src/build_log.cc` at v1.11.1, v1.12.1 and v1.13.1
+  - commit `a2b5e6d` "Introduce mechanism to provide resiliency for inputs changing while the build runs"
+  - commit `c266b21` "Increment ninja_log version"
+  - commit `32e7e23` "Switch hash to rapidhash"
+- n2: https://github.com/evmar/n2 · samurai: https://github.com/michaelforney/samurai · Siso: Chromium's Go build runner
+- CMake: the Ninja generators, `cmake-cxxmodules(7)`, `cmake --install`, `ctest --output-junit`
+- Meson: `NINJA` variable, `meson install --destdir`, `meson test`
+- LLVM, "Building LLVM with CMake": `LLVM_PARALLEL_LINK_JOBS`, `LLVM_PARALLEL_COMPILE_JOBS`
+- ccache manual: https://ccache.dev/manual/latest.html
+- Linux man pages: `proc(5)`, `cgroups(7)` (`memory.max`/`current`/`events`, `memory.limit_in_bytes`), `wait4(2)`, `flock(2)`, `rename(2)`

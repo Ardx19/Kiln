@@ -1,0 +1,122 @@
+# kiln
+
+**A Ninja-compatible build runner that knows about memory, environments, and shared output.**
+
+kiln runs the `build.ninja` files that CMake already generates, so there's no new build language to learn. It adds what Ninja leaves to you: it keeps parallel jobs within a RAM budget, it can run builds detached from your terminal, and it won't let two build trees mix their installs in one directory.
+
+It's aimed at big C++ trees on small machines: a WSL laptop, several git worktrees, a CI runner with a tight cache.
+
+> **Status:** early development. Features below marked *(planned)* are not implemented yet.
+
+---
+
+## Why
+
+kiln came out of building [RDKit](https://github.com/rdkit/rdkit) on an 11 GB WSL laptop with 12 threads. Every problem below happened in practice:
+
+| Problem | What happens with plain Ninja | What kiln does |
+|---|---|---|
+| Out-of-memory builds | Default `-j` (~14) runs out of RAM when the heavy Boost.Python files compile together, so you hand-tune `-j6` | **Memory-aware scheduling.** Jobs start only while they fit a RAM budget, using each job's peak memory from past runs |
+| Long builds tied to a terminal | `setsid nohup ninja … &` plus `pgrep` and `tail` | **Detached builds** with `kiln build --detach`, `status`, `wait`, `log -f` |
+| Several build trees installing into one directory | Boost and nanobind `.so` sets can get mixed, so you clean up by hand | **Transactional install.** Installs are staged, then committed atomically, and each install directory records which tree owns it |
+| Wrong Python environment | A stale NumPy from `~/.local` gets picked up silently | **Declared environment.** The pinned environment is applied to every command, and a change triggers a rebuild |
+| Cache misses across worktrees | ccache misses unless `CCACHE_BASEDIR` is set | **Shared cache** with paths normalized against a declared base dir |
+| Tests failing because of the environment | `ctest` needs a hand-set `LD_LIBRARY_PATH` | **`kiln test`** runs tests in the same declared environment, with an expected-failure list |
+| CI cache thrashing | A cache that's too small just churns | **Cache stats and size-aware eviction** |
+
+## Honest positioning
+
+kiln doesn't claim to be new. It builds on existing work:
+
+- **Ninja rewrites:** [n2](https://github.com/evmar/n2), [samurai](https://github.com/michaelforney/samurai), Siso
+- **Resource-aware scheduling:** Bazel's `--local_resources` (static estimates), Ninja's `-l` (CPU load only)
+- **Compiler caches:** ccache, sccache
+
+What's different here is narrower:
+
+1. **Memory cost learned from past runs**, instead of static job counts or hand-written estimates.
+2. **Install ownership**, so one install directory can't hold a mix of files from different build trees.
+
+The environment and cache features are mostly about putting existing ideas in one tool. They aren't presented as things Ninja can't do.
+
+## Features
+
+### Core
+- Parses the Ninja manifest, covering the subset CMake generates (rules, pools, `deps = gcc`, `restat`, response files, `include`/`subninja`, phony targets)
+- Builds the dependency graph and rebuilds only what changed (mtime plus command-hash checks)
+- Discovers header dependencies from depfiles: a newly added `#include` joins the graph, and a removed one drops out
+- Runs jobs in parallel
+- `-d explain` shows why each target rebuilt
+
+### Memory-aware scheduling
+- Records each job's peak memory (RSS) on every run
+- Admits a new job only if its predicted memory fits the remaining budget
+- Uses a configurable floor and ceiling on parallelism
+
+### Detached builds
+- `kiln build --detach` keeps running after the terminal closes or an SSH session drops
+- Logs persist; `status`, `wait` and `log -f` replace the manual background routine
+- Useful for CI, remote sessions and AI coding agents
+
+### Transactional install *(planned)*
+- Stages the install, then commits it atomically
+- Records which tree owns the install directory
+- A different tree installing either swaps cleanly or is refused
+
+### Declared environment and `kiln test` *(planned)*
+- Pins `PYTHONNOUSERSITE`, the conda prefix and library paths in config
+- Applies them to builds and tests alike
+- Supports an expected-failure list for known-bad tests
+
+### Shared cache *(planned)*
+- Content-addressed, with paths normalized against a declared base dir
+- Size-aware eviction, plus hit-rate and size reporting
+
+### Stretch
+- Content hashing instead of mtimes, so checkouts that only touch timestamps don't trigger rebuilds
+- Traced or sandboxed execution to catch undeclared dependencies
+
+## Usage *(planned interface)*
+
+```bash
+cmake -S . -B build -G Ninja
+kiln -C build
+kiln -C build --mem-budget 9G
+kiln -C build build --detach
+kiln -C build status
+kiln -C build log -f
+kiln -C build install
+kiln -C build test
+kiln -C build -d explain <target>
+```
+
+## Benchmarks
+
+Measured on an RDKit build, WSL2, 11 GB RAM, 12 threads.
+
+| Runner | Wall time | Peak RAM | OOM failures |
+|---|---|---|---|
+| `ninja` (default -j) | — | — | — |
+| `ninja -j6` (hand-tuned) | — | — | — |
+| `kiln` (memory budget) | — | — | — |
+
+| Scenario | Result |
+|---|---|
+| Cold build of a 2nd worktree, ccache without `CCACHE_BASEDIR` | — hit rate |
+| Cold build of a 2nd worktree, kiln shared cache | — hit rate |
+| Boost ↔ nanobind install swap | — |
+
+*Numbers will be filled in from real runs. Method: see `bench/`.*
+
+## Correctness
+
+kiln's rebuild decisions are checked against real Ninja on the same trees. After the same edits, both tools should agree on which targets are dirty.
+
+## Docs
+
+- `DESIGN.md`: architecture, the scheduler model, the install protocol
+- `docs/problems/`: one write-up per problem (problem, approach, measured result)
+
+## License
+
+TBD
