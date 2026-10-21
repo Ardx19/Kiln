@@ -59,6 +59,21 @@ bin/kiln -C /path/to/build
 
 It takes `-j`, `-k`, `-n`, `-v`, `--quiet`, `-f`, `-d explain|keepdepfile|keeprsp` and targets, and honours `NINJA_STATUS` and `CLICOLOR_FORCE`. Ready edges start in critical-path order, weighted by each edge's last duration in `.ninja_log`. It writes `.ninja_log` and `.ninja_deps` in the tree's existing format. A tree with no log gets the format of the Ninja it's configured with (`CMAKE_MAKE_PROGRAM`, `$NINJA`, or `ninja` on `PATH`).
 
+**Memory scheduling.** `kiln -C build` keeps running jobs within a memory budget (see [problems/oom.md](problems/oom.md)). Useful flags: `--mem-budget 4G`, `--min-jobs N`, `--mem=off`, `-d sched` (print each decision). Machine defaults go in `~/.config/kiln/config.toml` (or `$KILN_CONFIG`):
+
+```toml
+[memory]
+enabled  = true
+budget   = "8GiB"
+min_jobs = 1
+```
+
+Tests (`tests/compat/mem_test.go`, using `tools/memhog`, a program that touches N MiB):
+- **`TestMemBudget`:** eight 200 MiB jobs under a 600 MiB budget never run more than 3 at once, the peak is learned into `.kiln/mem.log`, and `--mem=off` shows what Ninja would do.
+- **`TestMemBrake`:** `KILN_TEST_MEMORY=FILE` replaces the memory readings (`available=BYTES`, `oom_kill=N`, ...), so the test can squeeze memory mid-build. A job is stopped, rerun, and the build finishes with Ninja finding nothing left to do.
+- **`TestMemOOMRetry`:** a job SIGKILLed on its first run is run once more; a failing job, or one killed twice, fails the build.
+- **`make mem-container`** runs `TestMemContainer` in `docker run --memory=2g`: eight 400 MiB jobs, so kiln finishes with no flags while `ninja -j8` is OOM-killed. CI runs it on cgroup v2; local Docker on WSL is cgroup v1.
+
 **Drop-in mode.** `kiln shim DIR` makes `DIR/ninja` a symlink to kiln. Under that name kiln behaves exactly like Ninja 1.13.2, so CMake and Meson can drive it:
 
 ```bash

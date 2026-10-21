@@ -43,7 +43,14 @@ var (
 )
 
 // ReadMemory samples /proc/meminfo, /proc/vmstat and kiln's cgroup.
+//
+// For tests, $KILN_TEST_MEMORY names a file that replaces the readings,
+// re-read on every call, with lines "available=BYTES", "limit=BYTES",
+// "workingset=BYTES", "oom_kill=N", "swapin=N" and "swapout=N".
 func ReadMemory() Memory {
+	if path := os.Getenv("KILN_TEST_MEMORY"); path != "" {
+		return readTestMemory(path)
+	}
 	cgroupOnce.Do(func() { ownCgroups = findCgroups(os.ReadFile) })
 	return readMemory(os.ReadFile, ownCgroups)
 }
@@ -116,6 +123,36 @@ func fields(read func(string) ([]byte, error), path string) map[string]uint64 {
 		}
 		if n, err := strconv.ParseUint(f[1], 10, 64); err == nil {
 			m[f[0]] = n
+		}
+	}
+	return m
+}
+
+func readTestMemory(path string) Memory {
+	var m Memory
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return m
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		k, v, _ := strings.Cut(strings.TrimSpace(line), "=")
+		n, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			continue
+		}
+		switch k {
+		case "available":
+			m.Available = n
+		case "limit":
+			m.Limit = n
+		case "workingset":
+			m.WorkingSet = n
+		case "oom_kill":
+			m.OOMKills = n
+		case "swapin":
+			m.SwapIn = n
+		case "swapout":
+			m.SwapOut = n
 		}
 	}
 	return m

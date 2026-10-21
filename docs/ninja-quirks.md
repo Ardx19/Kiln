@@ -99,6 +99,16 @@ From `build.cc` and `build_log.cc` in 1.11.1, 1.12.1 and 1.13.2. kiln picks the 
 - **`-t compdb`**: 1.12 started escaping control characters in its JSON, and `-x` started expanding `-f rspfile` and `--option-file=rspfile` as well as `@rspfile`. kiln follows 1.13.
 - **`-w dupbuild=` and `-w depfilemulti=`** only print a deprecation warning in 1.13. `phonycycle=` is the one warning flag that still has an effect.
 
+## Memory-aware scheduling (M3)
+
+None of this changes what runs or what the logs say. It only changes when commands start, and now and then reruns one.
+
+- **Admission.** Ninja starts a ready edge whenever `-j` allows. kiln also needs the edge's predicted peak memory to fit in what's left of a budget: 90% of the tighter of host `MemAvailable` and the container's cgroup limit, unless `--mem-budget` or the config file says otherwise. A job with no history is predicted from similar edges (same rule and directory, same rule, same kind of command), then from a default (768 MiB for a compile, 1.5 GiB for a link). `--min-jobs` (default 1) always runs, so an edge bigger than the whole budget runs alone.
+- **The brake.** Below a low watermark, or while the machine is swapping, nothing new starts. Below a critical one, kiln stops the youngest job's process group and runs it again once there's room, with a raised estimate, instead of letting the kernel kill something at random. The stopped job's half-written outputs are removed first, as Ninja does after an interrupt, and it never reaches `.ninja_log`.
+- **OOM retry (a deliberate difference).** A command that dies of SIGKILL, or whose output says `Killed signal terminated program`, is run once more at 1.5 times its peak. Ninja reports the failure. A command that fails any other way, or is killed twice, fails the build as usual.
+- **Drop-in mode** schedules the same way. `KILN_MEM=off` or `--mem=off` gives plain Ninja behaviour for A/B runs; as `ninja` there are no kiln flags, so use the variable.
+- **State.** The memory history lives in `.kiln/mem.log` (`kiln mem top`, `kiln mem forget PATTERN`). Ninja never reads it.
+
 ## Deliberate differences
 
 - **Drop-in mode is chosen by the program's name.** Run as `ninja` (`kiln shim DIR` makes the symlink), kiln is Ninja's command line, prints `ninja:` and reports version 1.13.2. Run as `kiln`, the names `build status wait log stop mem install test exec cache shim` are subcommands, and `kiln build <name>` builds a target with one of those names.

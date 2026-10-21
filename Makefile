@@ -15,7 +15,7 @@ DOCKER_RUN = docker run --rm --user $$(id -u):$$(id -g) \
 	-e KILN_WORK=/src/.work/ci -e KILN_CORPUS=/src/.work/ci/corpus \
 	-v "$(CURDIR):/src" -w /src $(CI_IMAGE)
 
-.PHONY: help build test lint tools compat compat-short corpus ci-image ci-run
+.PHONY: help build test lint tools compat compat-short corpus ci-image ci-run mem-container
 
 help:
 	@echo "build          build bin/kiln"
@@ -57,6 +57,14 @@ corpus: tools
 
 ci-image:
 	docker build -f ci/Dockerfile -t $(CI_IMAGE) .
+
+# Eight 400 MiB jobs in a 2 GiB container: kiln finishes, ninja -j8 is OOM-killed.
+mem-container: ci-image
+	docker run --rm --user $$(id -u):$$(id -g) --memory=2g --memory-swap=2g \
+		-e HOME=/tmp -e GOCACHE=/tmp/go-cache -e GOMODCACHE=/tmp/go-mod \
+		-e KILN_WORK=/src/.work/ci -e KILN_MEM_CONTAINER=1 \
+		-v "$(CURDIR):/src" -w /src $(CI_IMAGE) \
+		go test -tags compat -count=1 -run TestMemContainer -v ./tests/compat
 
 ci-run: ci-image
 	$(DOCKER_RUN) make $(CI_TARGET)

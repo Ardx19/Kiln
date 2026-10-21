@@ -472,10 +472,15 @@ The finish line is **v0.3** (M1–M8). M9 stays a prioritized backlog.
   - `--mem=off` (plain Ninja behaviour, for A/B runs)
   - `kiln mem top [N]` and `kiln mem forget <pattern>`
 
+**Progress (2026-10-22): M3 is built; the headline benchmark waits for M5.**
+- **Code.** `internal/memprobe` (sampler, 0.2% of a core with 14 jobs), `internal/memdb` (history and predictor), `internal/sched` (admission), `internal/sysinfo` (host and cgroup memory, v1 and v2), `internal/config` (TOML), `internal/build/memory.go` (the brake, requeue and OOM retry), and `kiln mem top|forget`. It's on by default, also in drop-in mode (`KILN_MEM=off` or `--mem=off` turns it off).
+- **Tests.** The admission simulation, the predictor, the probe, and `tests/compat/mem_test.go` (budget, brake, OOM retry, and the container test).
+- **Still to do:** the headline runs on RDKit, LLVM and DuckDB (they're part of M5's benchmarks).
+
 **Acceptance**
-- [ ] **Simulation suite.** The admission policy is a pure function, tested with a simulated clock and synthetic job profiles. It never exceeds the budget by prediction, bounds starvation, respects `--min-jobs` and `-j`, and runs oversized jobs alone.
-- [ ] **Container test, no flags.** Inside `docker run --memory=2g`, kiln finds the 2 GiB limit by itself and completes the memhog fixture (jobs that touch N MiB for T seconds), with measured peak below the limit. `ninja -j8` gets OOM-killed.
-- [ ] Sampler overhead is under 1% of one core with 14 concurrent jobs.
+- [x] **Simulation suite.** The admission policy is a pure function, tested with a simulated clock and synthetic job profiles. It never exceeds the budget by prediction, bounds starvation, respects `--min-jobs` and `-j`, and runs oversized jobs alone.
+- [x] **Container test, no flags.** Inside `docker run --memory=2g`, kiln finds the 2 GiB limit by itself and completes the memhog fixture (jobs that touch N MiB for T seconds), with measured peak below the limit. `ninja -j8` gets OOM-killed.
+- [x] Sampler overhead is under 1% of one core with 14 concurrent jobs.
 - [ ] **Headline**, on two machine profiles: the WSL laptop and a small-runner container (for example 4 CPUs and 8 GiB).
   - At default settings, RDKit (compile-heavy) and LLVM (link-heavy) see **zero OOM kills** on both the first run and the learned run.
   - The learned run is no slower than the best hand-tuned setting (`-jN`, or `LLVM_PARALLEL_LINK_JOBS` for LLVM).

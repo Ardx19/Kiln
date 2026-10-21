@@ -95,7 +95,9 @@ func TestDropIn(t *testing.T) {
 			if gen != "Ninja" {
 				args = append(args, "-C", "Debug")
 			}
-			if out, err := exec.Command(ctest, args...).CombinedOutput(); err == nil || !strings.Contains(string(out), "1 tests failed out of 2") {
+			ct := exec.Command(ctest, args...)
+			ct.Env = env
+			if out, err := ct.CombinedOutput(); err == nil || !strings.Contains(string(out), "1 tests failed out of 2") {
 				t.Errorf("ctest: want the fixture's one failing test, got %v:\n%s", err, tail(string(out), 800))
 			}
 
@@ -166,7 +168,9 @@ func TestDropIn(t *testing.T) {
 			t.Errorf("compile_commands.json from kiln differs from Ninja's")
 		}
 
-		if out, err := exec.Command(tools.Meson, "test", "-C", build).CombinedOutput(); err == nil || !strings.Contains(string(out), "Fail:              1") {
+		mtest := exec.Command(tools.Meson, "test", "-C", build)
+		mtest.Env = append(append([]string(nil), env...), viaKiln...)
+		if out, err := mtest.CombinedOutput(); err == nil || !strings.Contains(string(out), "Fail:              1") {
 			t.Errorf("meson test: want the fixture's one failing test, got %v:\n%s", err, tail(string(out), 800))
 		}
 		run(t, "/", append(viaKiln, "DESTDIR="+filepath.Join(base, "meson", "dest")), tools.Meson, "install", "-C", build)

@@ -1,6 +1,9 @@
 package sysinfo
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 const (
 	meminfo = "MemTotal:       12253312 kB\nMemFree:         1000000 kB\nMemAvailable:    9000000 kB\n"
@@ -54,5 +57,17 @@ func TestHeadroom(t *testing.T) {
 func TestReadMemoryHere(t *testing.T) {
 	if m := ReadMemory(); m.Available == 0 {
 		t.Errorf("no MemAvailable: %+v", m)
+	}
+}
+
+func TestTestMemoryHook(t *testing.T) {
+	path := t.TempDir() + "/mem"
+	if err := os.WriteFile(path, []byte("available=1000\nlimit=500\nworkingset=100\noom_kill=2\nswapin=3\nswapout=4\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("KILN_TEST_MEMORY", path)
+	m := ReadMemory()
+	if m.Available != 1000 || m.Headroom() != 400 || m.OOMKills != 2 || m.SwapIn != 3 || m.SwapOut != 4 {
+		t.Errorf("%+v", m)
 	}
 }

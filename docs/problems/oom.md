@@ -33,6 +33,14 @@ During each run it sampled the process tree every 50 ms and recorded three peaks
 
 "Peak at" is when the tree peak occurred, as a fraction of wall time. Raw samples are written to `spikes/memrss/out/results.jsonl`, which isn't committed.
 
+## What kiln does now (M3)
+
+kiln samples each job's process group from `/proc` every 200 ms (summing the whole tree, so `-pipe` and LTO count) and keeps wait4's `ru_maxrss` as a floor for spikes between ticks. A job's peak goes into `.kiln/mem.log` as a guarded maximum: a bigger run raises the estimate at once, a smaller one only lowers it by a quarter of the gap, and only if a compiler backend really ran, so a ccache hit can't erase what a real compile needs. Edges with no history are predicted from similar ones.
+
+Each round the scheduler starts ready edges in critical-path order while the predicted memory of running jobs plus the new one fits the budget. Smaller edges may start ahead of a blocked bigger one until it has waited 10 s, then it gets a reservation and the next free slot (so it can't starve). If memory runs short anyway, kiln stops the youngest job and runs it again later; a job the kernel OOM-killed is retried once at 1.5 times its peak.
+
+The sampler costs about 0.2% of a core with 14 jobs. Behaviour is checked by a simulation test of the admission rule (1,000 random workloads: the budget is never exceeded by prediction, nothing starves, `-j` and `--min-jobs` hold) and by `tests/compat/mem_test.go`, including a 2 GiB container where Ninja at `-j8` is OOM-killed and kiln finishes.
+
 ## What it means for M3
 
 1. **The premise holds.** The same edge peaked within 0.4% of itself across runs. Per-output history is a sound basis for prediction, and the planned 10% margin is generous.
