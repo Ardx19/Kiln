@@ -17,6 +17,7 @@ import (
 	"github.com/Ardx19/kiln/internal/depfile"
 	"github.com/Ardx19/kiln/internal/graph"
 	"github.com/Ardx19/kiln/internal/manifest"
+	"github.com/Ardx19/kiln/internal/metrics"
 	"github.com/Ardx19/kiln/internal/state"
 )
 
@@ -36,6 +37,7 @@ type RealDisk struct{}
 // for a missing file (ENOENT or ENOTDIR), and 1 for a file whose mtime is
 // the epoch, so that it doesn't look missing.
 func (RealDisk) Stat(path string) (int64, error) {
+	defer metrics.Record("node stat")()
 	var st syscall.Stat_t
 	if err := syscall.Stat(path, &st); err != nil {
 		if errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ENOTDIR) {
@@ -351,6 +353,7 @@ func (s *Scanner) loadDepsFromLog(edge *graph.Edge) bool {
 }
 
 func (s *Scanner) loadDepfile(edge *graph.Edge, path string) (bool, error) {
+	defer metrics.Record("depfile load")()
 	content, err := s.disk.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return false, fmt.Errorf("loading '%s': %v", path, err)

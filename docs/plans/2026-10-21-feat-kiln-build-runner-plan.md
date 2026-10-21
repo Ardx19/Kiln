@@ -3,7 +3,7 @@ title: "kiln: Ninja-compatible build runner — implementation plan"
 type: feat
 status: active
 date: 2026-10-21
-updated: 2026-10-21 (widened from RDKit to C/C++ projects in general)
+updated: 2026-10-21 (widened from RDKit to C/C++ projects in general; roadmap to v0.3 added after M1e)
 scope: ../../project_scope.md.txt
 ---
 
@@ -61,7 +61,7 @@ These are recommendations. Confirm or override them before starting M0. The rest
   - kiln can prepend `ccache` at run time to compile edges that call a known compiler directly (gcc, g++, cc, c++, clang, clang++ and cross variants) and have no launcher. The Ninja command hash stays computed on the manifest's own command, so the state remains valid for Ninja.
   - sccache comes later. A native content-addressed cache waits for traced execution (stretch), because caching arbitrary edges safely needs complete input knowledge.
 - **D6. Install = per-file ownership with a journaled commit.** Stage with `DESTDIR` through `cmake --install` or `meson install`, then commit through a journal. M6 has the full rules.
-- **D7. Licence.** The README says TBD. Pick one before publishing or porting test cases. Apache-2.0 matches Ninja and n2.
+- **D7. Licence: Apache-2.0** (decided 2026-10-21). It matches Ninja, whose code kiln ports. `NOTICE` credits Ninja, plus rapidhash (BSD-2-Clause) and MurmurHash64A (public domain).
 
 ## Scope notes
 
@@ -148,8 +148,11 @@ Built in M0 and used by every milestone after it.
 | C++20 modules sample | CMake ≥ 3.28, Ninja ≥ 1.11 `dyndep`, Clang ≥ 16 or GCC ≥ 14 | tiny | CI container |
 | GLib 2.90.1 | Meson, code generation, `meson install` and `meson test` | medium | nightly |
 | protobuf v36.2 | CMake, heavy code generation, many targets | medium | nightly |
-| RDKit (your 11 local trees) | CMake, compile-heavy translation units, in-tree install, Python | large | local |
-| LLVM + Clang | CMake, link-heavy memory (the `LLVM_PARALLEL_LINK_JOBS` case) | large | local or nightly |
+| DuckDB v2.0.0 | CMake, heavy unity-build compiles. Its own docs say Ninja runs out of memory on small machines | medium | local |
+| RDKit `Release_2026_09_1` (kiln's own copy) | CMake, compile-heavy translation units, in-tree install, Python | large | local |
+| LLVM + Clang 23.1.4, slim | CMake, many large links (the `LLVM_PARALLEL_LINK_JOBS` case). Release, X86, no test suites, to stay near 10 GB | large | local |
+
+**Your 11 RDKit trees** are used only for read-only checks (`-n` with a version-matched Ninja). The large builds use kiln's own copies under `.work/corpus`, about 15 GB in total, with deps from the `rdkit-dev` conda env.
 
 **Tool matrix:**
 
@@ -177,6 +180,31 @@ Rough sizes for one developer: **S** ≤ 1 week, **M** ≈ 2 weeks, **L** ≈ 4+
 
 M2, M3 and M4 depend only on M1, so they can run in parallel, for example in separate worktrees or by separate agents.
 
+### Roadmap to v0.3 (agreed 2026-10-21, after M1e)
+
+The finish line is **v0.3** (M1–M8). M9 stays a prioritized backlog.
+
+| Phase | Work | Machine time | Release |
+|---|---|---|---|
+| A | Licence, M1 close-out (DuckDB, RDKit and slim LLVM built with Ninja and kiln), M0 leftovers, memory-spike follow-up | ~1.5 days, unattended | — |
+| B | M2 drop-in integration | small | — |
+| C | M3 memory-aware scheduling | ~1 day | — |
+| D | M4 detached runs | small | — |
+| E | M5 benchmarks (reduced matrix), docs | ~2 days | v0.1.0 |
+| F | M6 transactional install | ~0.5 day | — |
+| G | M7 declared environment and `kiln test` | small | v0.2.0 |
+| H | M8 shared cache | ~0.5 day | v0.3.0 |
+
+**Why this order:**
+- M2 lets `cmake --build` and `meson compile` drive kiln in every later test.
+- M4's status reports per-job memory, so it follows M3.
+- M6 reuses M2's generator detection, and M7 extends M3's config.
+
+**Reduced benchmark matrix (M5):**
+- **Profiles:** the laptop runs RDKit and slim LLVM, and a 4-CPU/8 GiB container runs RDKit and DuckDB.
+- **Runners**, for each: Ninja at its default `-j`, the best hand-tuned setting, kiln's first run and kiln's learned run.
+- **DuckDB** adds a row for its documented workaround, `GEN= make`.
+
 ### M0 — Foundations and corpus (M)
 
 **Tasks**
@@ -203,10 +231,9 @@ M2, M3 and M4 depend only on M1, so they can run in parallel, for example in sep
   The result picks the approach: `setsid` alone, `systemd-run --user --scope`, or documenting `loginctl enable-linger`.
 
 **Acceptance** (status as of 2026-10-21)
-- [ ] CI is green on GitHub. *Partly done.*
+- [x] CI is green on GitHub, for every push from M0 to M1e.
   - The image carries Ninja 1.11.1, 1.12.1 and 1.13.2, CMake 3.22.6 and 4.4.4, Meson 1.12.1, GCC 14 and Clang 18.
-  - It builds locally, and `lint`, `test` and `compat` all pass inside it.
-  - The repo has no GitHub remote yet, so the workflow hasn't run.
+  - `lint`, `test` and `compat` all pass inside it.
 - [x] genfixture's CMake, Meson and raw-ninja outputs build under every Ninja in the matrix, plus the system Ninja 1.10.1.
 - [x] The harness self-test passes for every Ninja version. Clock-step retries are needed on WSL ([problems/clock-steps.md](../problems/clock-steps.md)), and one Ninja < 1.12 behaviour is logged as a known quirk ([ninja-quirks.md](../ninja-quirks.md)).
 - [ ] Every corpus project configures and builds with plain Ninja from the scripts. *Partly done.*
@@ -364,17 +391,51 @@ M2, M3 and M4 depend only on M1, so they can run in parallel, for example in sep
 
 ### M2 — Drop-in integration (S)
 
+**Design (revised 2026-10-21)**
+- **Drop-in mode is chosen by invocation name.**
+  - When kiln runs under the name `ninja` (a symlink), it is exactly Ninja's CLI: `--version` prints the emulated Ninja version, and there are no subcommands.
+  - **Why:** generators parse `<make program> --version`, and `cmake --build --target install|test` passes target names that clash with kiln's subcommands. So pointing `CMAKE_MAKE_PROGRAM` at `kiln` itself can't work.
+- **Reported version: 1.13.2,** the newest Ninja whose manifest, state and CLI kiln supports.
+- **Reserved subcommands.** Every planned subcommand name is reserved now: `build status wait log stop mem install test exec cache shim`. `kiln build <name>` builds a target with that name, so later milestones never change what a command line means.
+- **Choosing a fresh tree's log version** skips candidates that are kiln itself (compared by file identity), then tries `$NINJA`, then a real `ninja` on `PATH`, then defaults to v7.
+
 **Tasks**
-- `kiln --version` prints a Ninja-compatible version: the newest Ninja whose features kiln fully supports. Installed or symlinked as `ninja`, kiln accepts Ninja's whole CLI.
-- Implement natively the `-t` tools that generators call: `restat`, `recompact`, `cleandead` and `compdb`. CMake calls the first two. Meson's regeneration calls `restat` and `cleandead`, and its setup calls `compdb` (seen in M0). Pass any other `-t` tool to a real Ninja on `PATH`; its output is correct because the state is shared. With no Ninja on `PATH`, give a clear error.
-- Document the three ways in: `-DCMAKE_MAKE_PROGRAM=$(command -v kiln)`, `NINJA=kiln meson setup …`, or a `ninja` symlink early on `PATH`.
+- Record the argv CMake and Meson pass to the make program (configure, `try_compile`, build, regeneration, `clean`, `install`, `test`) as test data.
+- Implement natively the `-t` tools that generators call: `restat`, `recompact`, `cleandead`, `clean` and `compdb`.
+  - CMake calls `restat` and `recompact`, and its `clean` target calls `clean`.
+  - Meson's regeneration calls `restat` and `cleandead`, and its setup calls `compdb` (seen in M0).
+- Pass any other `-t` tool to a real Ninja that isn't kiln. Its output is correct because the state is shared. With none available, give a clear error.
+- Finish the CLI: `-l`, `-d stats`, `-d list`, `-w dupbuild=`/`phonycycle=`, `-h` and `-t list`.
+- Document the ways in. `kiln shim <dir>` creates `<dir>/ninja`. Then use `-DCMAKE_MAKE_PROGRAM=<dir>/ninja`, or `NINJA=<dir>/ninja meson setup`, or put `<dir>` first on `PATH`.
+
+**Progress (2026-10-21): M2 is done.**
+- **Code.**
+  - `cmd/kiln` picks drop-in mode from its invocation name.
+  - In kiln mode it reserves the subcommands (`build` and `shim` work now).
+  - It finishes Ninja's command line: `-l`, `-d stats`/`list`, `-w`, `-h`, getopt's error messages and `-t list`.
+- **Subtools.** `internal/tools` holds the cleaner and compdb. `restat`, `recompact` and `cleandead` reuse the state writers. Other `-t` tools go to a real Ninja, and the log-reading ones only to one that writes the tree's log version.
+- **Checked against Ninja:**
+  - **`TestToolsMatchNinja`:** 12 tool scenarios × 5 fixture kinds × 4 Ninja versions give the same output, remaining files and logs. The only allowed differences are the two older `cleandead` behaviours in `ninja-quirks.md`.
+  - **`TestDropIn`:** CMake (both Ninja generators) and Meson drive kiln through every recorded generator call.
+  - **The command line** matches Ninja 1.13.2 byte for byte for `-h`, `--help`, bad flags, `-d list`, `-w list`, `-t list`, `--version` and unknown tools.
+- **Corpus:**
+  - fmt, protobuf and GLib switch to kiln with no rebuild.
+  - An edited fmt source rebuilds through `cmake --build`, and all 21 tests pass.
+  - An edited GLib file rebuilds through `meson compile`, with `restat` pruning all but 4 of 487 steps.
 
 **Acceptance**
-- [ ] With `CMAKE_MAKE_PROGRAM` pointing at kiln, `cmake --build` builds the CMake corpus projects, including a regeneration after editing `CMakeLists.txt`.
-- [ ] With `NINJA=kiln`, `meson setup` and `meson compile` build the Meson corpus project, and `compile_commands.json` matches what real Ninja produces.
-- [ ] Switching `CMAKE_MAKE_PROGRAM` between ninja and kiln in one tree causes no rebuild.
+- [x] With `CMAKE_MAKE_PROGRAM` pointing at kiln (through `kiln shim`), `cmake --build` builds the CMake corpus projects, including a regeneration after editing `CMakeLists.txt`.
+- [x] With `NINJA` pointing at the shim, `meson setup` and `meson compile` build the Meson corpus project, and `compile_commands.json` matches what real Ninja produces.
+- [x] Switching `CMAKE_MAKE_PROGRAM` between ninja and kiln in one tree causes no rebuild.
 
 ### M3 — Memory-aware scheduling (M–L)
+
+**Refinements (2026-10-21), from what this machine's kernel offers:**
+- **No `/proc/<pid>/task/<tid>/children` on WSL**, so the probe scans `/proc` every tick. A `pid → pgid` cache means it only reads `stat` for new processes.
+- **Working set, not usage.** The cgroup working set is usage minus inactive file pages (`inactive_file` on v2, `total_inactive_file` on v1).
+- **Thrash signal.** With no PSI, swap-in and swap-out deltas from `/proc/vmstat` stand in for memory pressure.
+- **Config arrives here.** `internal/config` comes in with M3, for the user's machine defaults, and M7 extends it.
+- **Command kinds** for no-history predictions: compile, link, archive, codegen and other.
 
 **Design**
 - **Probe.**
@@ -582,9 +643,11 @@ M2, M3 and M4 depend only on M1, so they can run in parallel, for example in sep
 
 ## Open questions
 
-- Should Tier 2 manifests get install and test integration through configured commands, or stay engine-only?
-- Config split: build-dir config plus user config, or also a project-level file in the source tree shared by every worktree?
-- Which Ninja version should drop-in mode report while kiln lacks some newer Ninja feature?
+All three were resolved on 2026-10-21:
+
+- **Tier 2 install and test:** through configured commands (`[install] command`, which must honour `DESTDIR`, and `[test] command`).
+- **Config:** `<build>/.kiln/config.toml` first, then an optional `<source>/.kiln.toml` shared by every worktree, then `~/.config/kiln/config.toml`.
+- **Drop-in version:** 1.13.2, the newest Ninja whose manifest, state and CLI kiln supports.
 
 ## References
 

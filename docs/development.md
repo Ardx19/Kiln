@@ -59,6 +59,22 @@ bin/kiln -C /path/to/build
 
 It takes `-j`, `-k`, `-n`, `-v`, `--quiet`, `-f`, `-d explain|keepdepfile|keeprsp` and targets, and honours `NINJA_STATUS` and `CLICOLOR_FORCE`. Ready edges start in critical-path order, weighted by each edge's last duration in `.ninja_log`. It writes `.ninja_log` and `.ninja_deps` in the tree's existing format. A tree with no log gets the format of the Ninja it's configured with (`CMAKE_MAKE_PROGRAM`, `$NINJA`, or `ninja` on `PATH`).
 
+**Drop-in mode.** `kiln shim DIR` makes `DIR/ninja` a symlink to kiln. Under that name kiln behaves exactly like Ninja 1.13.2, so CMake and Meson can drive it:
+
+```bash
+kiln shim ~/.local/share/kiln/bin
+cmake -S src -B build -G Ninja -DCMAKE_MAKE_PROGRAM=$HOME/.local/share/kiln/bin/ninja
+NINJA=$HOME/.local/share/kiln/bin/ninja meson setup build src
+```
+
+Two tests cover drop-in mode:
+- **`TestToolsMatchNinja`** runs `clean`, `cleandead`, `compdb`, `recompact` and `restat` with each Ninja and with kiln from the same snapshot. Output, remaining files and both logs must match, for every Ninja version and fixture kind.
+- **`TestDropIn`** drives the shim through CMake (both Ninja generators) and Meson: configure, build, regeneration, clean, install, test, and switching `CMAKE_MAKE_PROGRAM` back and forth.
+
+`tests/compat/testdata/generator-calls/` records every call CMake and Meson make to the make program.
+
+`go run ./tools/genbig -out DIR` writes the 500k-edge manifest that the M1 speed target is measured on.
+
 Fixture trees live under `.work/` (override with `KILN_WORK`). Runs inside the CI image use `.work/ci/`, because trees made there contain `/src/...` paths.
 
 Parse speed on a real tree:

@@ -8,6 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/Ardx19/kiln/internal/graph"
 )
 
@@ -19,6 +21,9 @@ type result struct {
 	exit   int
 	signal syscall.Signal
 	err    error // the command couldn't be started
+	// maxRSS is the largest resident set of the command or any process it
+	// waited for (wait4's ru_maxrss), in bytes.
+	maxRSS uint64
 }
 
 func (r *result) success() bool { return r.err == nil && r.exit == 0 }
@@ -48,16 +53,20 @@ func (r *result) status() int {
 // together, except console-pool commands, which share kiln's terminal and
 // process group.
 type runner struct {
-	parallelism int // 0 means no limit
+	parallelism int     // 0 means no limit
+	maxLoad     float64 // -l; 0 means no limit
 	running     map[*graph.Edge]*exec.Cmd
 	done        chan *result
 	signals     chan os.Signal
 	caught      os.Signal // the signal that interrupted the build, if any
+	// wake, if set, ends a wait early so the builder can look at memory.
+	wake chan struct{}
 }
 
-func newRunner(parallelism int) *runner {
+func newRunner(parallelism int, maxLoad float64) *runner {
 	r := &runner{
 		parallelism: parallelism,
+		maxLoad:     maxLoad,
 		running:     map[*graph.Edge]*exec.Cmd{},
 		done:        make(chan *result),
 		signals:     make(chan os.Signal, 1),
@@ -69,14 +78,40 @@ func newRunner(parallelism int) *runner {
 // close stops catching signals.
 func (r *runner) close() { signal.Stop(r.signals) }
 
+// canRunMore is how many more commands may start, as Ninja 1.13
+// computes it: -j minus those running, capped by -l's headroom over the
+// load average, but always at least one when nothing runs.
 func (r *runner) canRunMore() int {
-	if r.parallelism == 0 {
-		return 1 << 30
+	capacity := 1 << 30
+	if r.parallelism != 0 {
+		capacity = r.parallelism - len(r.running)
 	}
-	return max(r.parallelism-len(r.running), 0)
+	if r.maxLoad > 0 {
+		if load := int(r.maxLoad - loadAverage()); load < capacity {
+			capacity = load
+		}
+	}
+	if capacity <= 0 {
+		capacity = 0
+		if len(r.running) == 0 {
+			capacity = 1 // make progress
+		}
+	}
+	return capacity
 }
 
-func (r *runner) start(e *graph.Edge, command string) error {
+// loadAverage is the one-minute load average, as getloadavg(3) reports.
+func loadAverage() float64 {
+	var info unix.Sysinfo_t
+	if unix.Sysinfo(&info) != nil {
+		return 0
+	}
+	return float64(info.Loads[0]) / (1 << unix.SI_LOAD_SHIFT)
+}
+
+// start runs command for e. It returns the command's process group, or 0
+// for a console command, which shares kiln's.
+func (r *runner) start(e *graph.Edge, command string) (int, error) {
 	cmd := exec.Command("/bin/sh", "-c", command)
 	var out bytes.Buffer
 	if e.Pool == graph.ConsolePool {
@@ -86,12 +121,15 @@ func (r *runner) start(e *graph.Edge, command string) error {
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	}
 	if err := cmd.Start(); err != nil {
-		return err
+		return 0, err
 	}
 	r.running[e] = cmd
 	go func() {
 		err := cmd.Wait()
 		res := &result{edge: e, output: out.String()}
+		if ru, ok := cmd.ProcessState.SysUsage().(*syscall.Rusage); ok {
+			res.maxRSS = uint64(ru.Maxrss) * 1024
+		}
 		var exitErr *exec.ExitError
 		switch {
 		case err == nil:
@@ -107,19 +145,31 @@ func (r *runner) start(e *graph.Edge, command string) error {
 		}
 		r.done <- res
 	}()
-	return nil
+	if e.Pool == graph.ConsolePool {
+		return 0, nil
+	}
+	return cmd.Process.Pid, nil
 }
 
 // wait returns the next finished command, or nil if a signal arrived
-// first (see caught).
-func (r *runner) wait() *result {
+// first (see caught) or the runner was woken (woke is then true).
+func (r *runner) wait() (res *result, woke bool) {
 	select {
 	case res := <-r.done:
 		delete(r.running, res.edge)
-		return res
+		return res, false
 	case sig := <-r.signals:
 		r.caught = sig
-		return nil
+		return nil, false
+	case <-r.wake:
+		return nil, true
+	}
+}
+
+// kill stops one running command's process group with SIGKILL.
+func (r *runner) kill(e *graph.Edge) {
+	if cmd := r.running[e]; cmd != nil && e.Pool != graph.ConsolePool {
+		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/Ardx19/kiln/internal/depfile"
 	"github.com/Ardx19/kiln/internal/graph"
+	"github.com/Ardx19/kiln/internal/metrics"
 	"github.com/Ardx19/kiln/internal/state"
 )
 
@@ -25,7 +26,12 @@ type Config struct {
 	FailuresAllowed int
 	// KeepDepfile and KeepRsp keep files Ninja would delete (-d).
 	KeepDepfile, KeepRsp bool
-	Profile              Profile
+	// MaxLoad is -l: no new jobs while the load average is above it
+	// (0: no limit).
+	MaxLoad float64
+	// Mem configures memory-aware scheduling.
+	Mem     MemConfig
+	Profile Profile
 }
 
 // Builder brings targets up to date. It is a port of Ninja's Builder.
@@ -44,11 +50,13 @@ type Builder struct {
 	runner     *runner
 	exitStatus int   // the last failing command's status
 	avgCost    int64 // average command duration in the log, for edges without one
+	mem        *memSched
 }
 
 type running struct {
 	startMS    int
 	startStamp int64 // the lock file's mtime when the edge started (v6+)
+	pgid       int   // the command's process group (0: console, or a dry run)
 }
 
 // NewBuilder returns a builder for st. log and deps may be nil for a dry
@@ -104,17 +112,24 @@ func (e *BuildError) Error() string { return e.Msg }
 
 // Build runs the plan, a port of Ninja's Builder::Build.
 func (b *Builder) Build() error {
+	done := metrics.Record("ComputeCriticalPath")
 	b.plan.computeCriticalPath(b.edgeCost)
+	done()
 	b.plan.scheduleInitialEdges()
 	b.status.buildStarted()
 	defer b.status.buildFinished()
 	var clock *clockWatch
 	if !b.cfg.DryRun {
-		b.runner = newRunner(b.cfg.Parallelism)
+		b.runner = newRunner(b.cfg.Parallelism, b.cfg.MaxLoad)
 		defer b.runner.close()
 		defer b.removeLock()
 		clock = newClockWatch()
 		defer b.checkClock(clock)
+		if b.mem = newMemSched(b); b.mem != nil {
+			b.runner.wake = make(chan struct{}, 1)
+			b.mem.start(b.runner.wake)
+			defer b.mem.close()
+		}
 	}
 	var dryQueue []*graph.Edge
 	pending := 0
@@ -124,6 +139,14 @@ func (b *Builder) Build() error {
 			capacity := 1 << 30
 			if b.runner != nil {
 				capacity = b.runner.canRunMore()
+			}
+			if b.mem != nil {
+				n, err := b.startAdmitted(capacity)
+				if err != nil {
+					return b.fail(err)
+				}
+				pending += n
+				capacity = 0
 			}
 			for capacity > 0 {
 				e := b.plan.findWork()
@@ -154,7 +177,7 @@ func (b *Builder) Build() error {
 					capacity = min(capacity, b.runner.canRunMore())
 				}
 			}
-			if pending == 0 && !b.plan.moreToDo() {
+			if pending == 0 && !b.plan.moreToDo() && (b.mem == nil || len(b.mem.held) == 0) {
 				break
 			}
 		}
@@ -163,12 +186,22 @@ func (b *Builder) Build() error {
 			if b.cfg.DryRun {
 				res = &result{edge: dryQueue[0]}
 				dryQueue = dryQueue[1:]
-			} else if res = b.runner.wait(); res == nil || res.interrupted() {
-				b.checkClock(clock)
-				b.cleanup()
-				return &BuildError{Msg: "interrupted by user", Exit: b.cfg.Profile.InterruptExit()}
+			} else {
+				var woke bool
+				if res, woke = b.runner.wait(); woke {
+					b.mem.tick()
+					continue
+				} else if res == nil || res.interrupted() {
+					b.checkClock(clock)
+					b.cleanup()
+					return &BuildError{Msg: "interrupted by user", Exit: b.cfg.Profile.InterruptExit()}
+				}
 			}
 			pending--
+			if b.mem != nil && b.mem.finished(res) {
+				b.requeue(res.edge) // killed for memory: it runs again
+				continue
+			}
 			err := b.finishCommand(res)
 			b.checkClock(clock)
 			if !res.success() {
@@ -252,6 +285,7 @@ func (b *Builder) fail(err error) error {
 }
 
 func (b *Builder) startEdge(e *graph.Edge) error {
+	defer metrics.Record("StartEdge")()
 	if e.IsPhony() {
 		return nil
 	}
@@ -289,9 +323,12 @@ func (b *Builder) startEdge(e *graph.Edge) error {
 	if err != nil {
 		return err
 	}
-	if err := b.runner.start(e, command); err != nil {
+	pgid, err := b.runner.start(e, command)
+	if err != nil {
 		return fmt.Errorf("command '%s' failed to start: %v", command, err)
 	}
+	r.pgid = pgid
+	b.started[e] = r
 	return nil
 }
 
@@ -314,6 +351,7 @@ func (b *Builder) removeLock() {
 }
 
 func (b *Builder) finishCommand(res *result) error {
+	defer metrics.Record("FinishCommand")()
 	e := res.edge
 	var depsNodes []*graph.Node
 	depsType, _ := e.Binding("deps")
@@ -501,15 +539,22 @@ func (b *Builder) cleanup() {
 	active := b.runner.activeEdges()
 	b.runner.abort()
 	for _, e := range active {
-		df, _ := e.UnescapedBinding("depfile")
-		for _, o := range e.Outputs {
-			m, _ := RealDisk{}.Stat(o.Path)
-			if df != "" || o.Mtime() != m {
-				os.Remove(o.Path)
-			}
+		b.discard(e)
+	}
+}
+
+// discard removes what a command that didn't finish left behind: outputs
+// whose mtime changed (all of them, for an edge with a depfile) and the
+// depfile.
+func (b *Builder) discard(e *graph.Edge) {
+	df, _ := e.UnescapedBinding("depfile")
+	for _, o := range e.Outputs {
+		m, _ := RealDisk{}.Stat(o.Path)
+		if df != "" || o.Mtime() != m {
+			os.Remove(o.Path)
 		}
-		if df != "" {
-			os.Remove(df)
-		}
+	}
+	if df != "" {
+		os.Remove(df)
 	}
 }

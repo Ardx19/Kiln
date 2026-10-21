@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/Ardx19/kiln/internal/graph"
+	"github.com/Ardx19/kiln/internal/metrics"
 )
 
 // NinjaVersion is the Ninja release whose manifest language kiln
@@ -32,6 +33,9 @@ type Options struct {
 	// Warn receives warnings, such as a phony target naming itself as an
 	// input. Nil discards them.
 	Warn func(msg string)
+	// PhonyCycleErr keeps a phony target's reference to itself, so the
+	// build reports it as a cycle (-w phonycycle=err).
+	PhonyCycleErr bool
 }
 
 // Load parses the manifest at path, and everything it includes, into a
@@ -71,6 +75,7 @@ type parser struct {
 }
 
 func (p *parser) load(path string, parent *lexer) error {
+	defer metrics.Record(".ninja parse")()
 	file := path
 	if p.opts.Dir != "" && !filepath.IsAbs(path) {
 		file = filepath.Join(p.opts.Dir, path)
@@ -387,7 +392,7 @@ func (p *parser) parseEdge() error {
 
 	// CMake 2.8.12 and 3.0 wrote phony edges that list their own output as
 	// an input. Ninja drops the self-reference with a warning by default.
-	if edge.IsPhony() && len(edge.Outputs) == 1 && edge.ImplicitOuts == 0 && edge.ImplicitDeps == 0 {
+	if !p.opts.PhonyCycleErr && edge.IsPhony() && len(edge.Outputs) == 1 && edge.ImplicitOuts == 0 && edge.ImplicitDeps == 0 {
 		out := edge.Outputs[0]
 		kept := edge.Inputs[:0]
 		for _, in := range edge.Inputs {

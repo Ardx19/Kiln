@@ -1,0 +1,30 @@
+# Calls to the make program, recorded with a logging ninja wrapper (cwd, then argv).
+# $BUILD is the build dir; $REPO the kiln checkout CMake/Meson ran from.
+## setup
+$REPO	--version
+$BUILD	-t compdb -x c_COMPILER_FOR_BUILD c_COMPILER_FOR_BUILD_RSP c_PCH_FOR_BUILD c_PCH_FOR_BUILD_RSP cpp_COMPILER_FOR_BUILD cpp_COMPILER_FOR_BUILD_RSP cpp_PCH_FOR_BUILD cpp_PCH_FOR_BUILD_RSP c_COMPILER c_COMPILER_RSP c_PCH c_PCH_RSP cpp_COMPILER cpp_COMPILER_RSP cpp_PCH cpp_PCH_RSP
+## compile
+$REPO	--version
+$REPO	-C $BUILD
+## compile -j3 target
+$REPO	--version
+$REPO	-C $BUILD -j 3 app
+## regenerate (touch meson.build)
+$REPO	--version
+$REPO	-C $BUILD
+$BUILD	--version
+$BUILD	-t restat
+$BUILD	-t cleandead
+$BUILD	-t compdb -x c_COMPILER_FOR_BUILD c_COMPILER_FOR_BUILD_RSP c_PCH_FOR_BUILD c_PCH_FOR_BUILD_RSP cpp_COMPILER_FOR_BUILD cpp_COMPILER_FOR_BUILD_RSP cpp_PCH_FOR_BUILD cpp_PCH_FOR_BUILD_RSP c_COMPILER c_COMPILER_RSP c_PCH c_PCH_RSP cpp_COMPILER cpp_COMPILER_RSP cpp_PCH cpp_PCH_RSP
+## clean
+$REPO	--version
+$REPO	-C $BUILD clean
+$BUILD	-t clean
+## test
+$REPO	--version
+$BUILD	-n build.ninja
+$REPO	-C $BUILD meson-test-prereq
+## install
+$REPO	--version
+$REPO	-C $BUILD
+## ninja targets clean/install/test

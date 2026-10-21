@@ -1,0 +1,32 @@
+# Calls to the make program, recorded with a logging ninja wrapper (cwd, then argv).
+# $BUILD is the build dir; $REPO the kiln checkout CMake/Meson ran from.
+## configure
+$REPO	--version
+$BUILD/CMakeFiles/CMakeScratch/TryCompile-XXXXXX	--version
+$BUILD/CMakeFiles/CMakeScratch/TryCompile-XXXXXX	-C $BUILD/CMakeFiles/CMakeScratch/TryCompile-XXXXXX -t recompact
+$BUILD/CMakeFiles/CMakeScratch/TryCompile-XXXXXX	-C $BUILD/CMakeFiles/CMakeScratch/TryCompile-XXXXXX -t restat build.ninja $BUILD/CMakeFiles/CMakeScratch/TryCompile-XXXXXX/cmake_install.cmake
+$BUILD/CMakeFiles/CMakeScratch/TryCompile-XXXXXX	-v cmTC_xxxxx
+$REPO	--version
+$BUILD/CMakeFiles/CMakeScratch/TryCompile-XXXXXX	--version
+$BUILD/CMakeFiles/CMakeScratch/TryCompile-XXXXXX	-C $BUILD/CMakeFiles/CMakeScratch/TryCompile-XXXXXX -t recompact
+$BUILD/CMakeFiles/CMakeScratch/TryCompile-XXXXXX	-C $BUILD/CMakeFiles/CMakeScratch/TryCompile-XXXXXX -t restat build.ninja $BUILD/CMakeFiles/CMakeScratch/TryCompile-XXXXXX/cmake_install.cmake
+$BUILD/CMakeFiles/CMakeScratch/TryCompile-XXXXXX	-v cmTC_xxxxx
+$REPO	--version
+$REPO	-C $BUILD -t restat build.ninja $BUILD/cmake_install.cmake $BUILD/CTestTestfile.cmake
+## build
+$BUILD	
+## build -j3 target app
+$BUILD	-j 3 app
+## regenerate (touch CMakeLists)
+$BUILD	
+$BUILD	--version
+$BUILD	-C $BUILD -t restat build.ninja $BUILD/cmake_install.cmake $BUILD/CTestTestfile.cmake
+## clean
+$BUILD	clean
+$BUILD	-t clean
+## install target
+$BUILD	install
+## cmake --install
+## ctest
+## test target
+$BUILD	test

@@ -82,7 +82,30 @@ From `build.cc` and `build_log.cc` in 1.11.1, 1.12.1 and 1.13.2. kiln picks the 
 - **Colour.** Command output keeps its ANSI escapes only in a smart terminal or with `CLICOLOR_FORCE=1`. Otherwise they are stripped.
 - **`NINJA_STATUS`.** Every version stops with `unknown placeholder '%q' in $NINJA_STATUS`, even under `-n`. kiln does the same and supports Ninja 1.13's placeholders.
 
+## Drop-in use and subtools (M2)
+
+**What generators call.** These are recorded in `tests/compat/testdata/generator-calls/`.
+- **CMake** (3.22 and 4.4) runs `ninja --version` to choose features, and `-t recompact` and `-t restat <files>` when it (re)generates. It builds `try_compile` projects as `-v cmTC_…`. Its `clean` target runs `ninja -t clean` from inside the build. `--target install` and `--target test` are plain targets.
+- **Meson** (1.12) runs `--version` and writes `compile_commands.json` from `-t compdb -x <rules>`. Regeneration runs `-t restat` and `-t cleandead`, and `meson compile --clean` runs `-t clean`.
+- **Before `meson test`, Meson runs `ninja -n build.ninja`** and looks for the literal text `ninja: no work to do.`. That's why drop-in mode prints `ninja:` in every message.
+
+**Subtools in detail:**
+- **`-t restat` runs before the manifest is read**, so it always uses `./.ninja_log`, even when the manifest sets `builddir`.
+- **Entry order.** `-t restat` and `-t recompact` write entries in hash-table order, so two runs of either tool give the same lines in a different order.
+- **`-t cleandead` changed twice:**
+  - Ninja 1.10 also deletes logged files that have since become inputs, sources included.
+  - Before 1.12, it doesn't load dyndep files first, so it deletes outputs that only a dyndep file declares.
+  - kiln follows 1.13 on both points. `TestToolsMatchNinja` accepts exactly these two differences.
+- **`-t compdb`**: 1.12 started escaping control characters in its JSON, and `-x` started expanding `-f rspfile` and `--option-file=rspfile` as well as `@rspfile`. kiln follows 1.13.
+- **`-w dupbuild=` and `-w depfilemulti=`** only print a deprecation warning in 1.13. `phonycycle=` is the one warning flag that still has an effect.
+
 ## Deliberate differences
+
+- **Drop-in mode is chosen by the program's name.** Run as `ninja` (`kiln shim DIR` makes the symlink), kiln is Ninja's command line, prints `ninja:` and reports version 1.13.2. Run as `kiln`, the names `build status wait log stop mem install test exec cache shim` are subcommands, and `kiln build <name>` builds a target with one of those names.
+- **`-t recompact` and `-t restat` keep the tree's log version.** Ninja 1.12+ would discard a log of another version and write an empty one.
+- **kiln only hands a log-reading tool to a matching Ninja.** The tools it doesn't run itself go to a real Ninja (`$KILN_REAL_NINJA`, or `ninja` on `PATH`). For `deps`, `query` and `missingdeps`, which open the logs, that Ninja must write the tree's log version. Otherwise kiln refuses rather than let it delete the log.
+- **No make jobserver client yet.** Ninja 1.13 takes job tokens from a parent `make -j` (`MAKEFLAGS`); kiln uses its own `-j`.
+- **`-d stats`** prints Ninja's table of timings, but not the hash-table load line that follows it.
 
 - **kiln warns when the wall clock steps back during a build** ([problems/clock-steps.md](problems/clock-steps.md)). Ninja says nothing. Forward steps keep every timestamp in order, so kiln ignores them.
 - **The default `-j` sees a cgroup v1 CPU quota on hybrid systems.** Ninja 1.11–1.12 read only the v1 quota. Ninja 1.13 prefers v2, and once it finds a v2 mount it stops, even if that cgroup sets no limit. On a hybrid system (WSL, older systemd) that hides a v1 quota. kiln falls back to v1, and otherwise counts as 1.13 does: the affinity mask capped by the quota, rounded down.
@@ -97,7 +120,7 @@ CMake declares each custom command output under both its relative path and an ab
 
 ## Generators call Ninja tools on the build dir
 
-CMake runs `ninja -t restat` and `-t recompact` when it regenerates. Meson's regeneration runs `-t restat` and `-t cleandead`, and Meson setup runs `-t compdb`. Drop-in mode (M2) must provide these.
+CMake runs `ninja -t restat` and `-t recompact` when it regenerates. Meson's regeneration runs `-t restat` and `-t cleandead`, and Meson setup runs `-t compdb`. kiln runs all four itself (M2).
 
 ## The environment around Ninja (WSL)
 

@@ -47,6 +47,8 @@ type Status struct {
 	predictableCPURemainingMs  int64
 	predictedFraction          float64
 	statusFormatError          error
+	// program prefixes messages: "kiln", or "ninja" in drop-in mode.
+	program string
 }
 
 // NewStatus writes to out. format follows NINJA_STATUS ("" means the
@@ -56,7 +58,7 @@ func NewStatus(out io.Writer, format string, verbosity Verbosity, parallelism in
 		format = DefaultStatusFormat
 	}
 	s := &Status{printer: newLinePrinter(out), format: format, verbosity: verbosity,
-		rate: slidingRate{n: max(parallelism, 1), last: -1, rate: -1}, start: time.Now()}
+		rate: slidingRate{n: max(parallelism, 1), last: -1, rate: -1}, start: time.Now(), program: "kiln"}
 	s.statusFormatError = checkStatusFormat(format)
 	return s
 }
@@ -64,15 +66,34 @@ func NewStatus(out io.Writer, format string, verbosity Verbosity, parallelism in
 // FormatError reports an unknown placeholder in the NINJA_STATUS format.
 func (s *Status) FormatError() error { return s.statusFormatError }
 
+// SetProgram sets the name messages start with ("kiln" by default).
+func (s *Status) SetProgram(name string) { s.program = name }
+
 // Info prints a message such as "no work to do." on its own line.
 func (s *Status) Info(format string, args ...any) {
-	s.printer.printOnNewLine(fmt.Sprintf("kiln: "+format+"\n", args...))
+	s.printer.printOnNewLine(fmt.Sprintf(s.program+": "+format+"\n", args...))
+}
+
+// Debug prints a -d message to stderr, below the status line.
+func (s *Status) Debug(msg string) {
+	s.printer.printOnNewLine("")
+	fmt.Fprintf(os.Stderr, "%s: %s\n", s.program, msg)
+}
+
+// edgeRequeued undoes edgeStarted for a command that will run again, so
+// the progress counters don't count it twice.
+func (s *Status) edgeRequeued(e *graph.Edge) {
+	s.started--
+	s.running--
+	if e.Pool == graph.ConsolePool {
+		s.printer.setConsoleLocked(false)
+	}
 }
 
 // Warn prints a warning to stderr, below the status line.
 func (s *Status) Warn(msg string) {
 	s.printer.printOnNewLine("")
-	fmt.Fprintf(os.Stderr, "kiln: warning: %s\n", msg)
+	fmt.Fprintf(os.Stderr, "%s: warning: %s\n", s.program, msg)
 }
 
 func (s *Status) buildStarted() {

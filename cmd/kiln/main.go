@@ -2,7 +2,8 @@
 //
 // It reads Ninja manifests and shares .ninja_log and .ninja_deps with
 // whichever Ninja version the build tree uses: kiln [-C dir] [-f file]
-// [-j N] [-k N] [-n] [-v] [-d explain|keepdepfile|keeprsp] [targets...].
+// [-j N] [-k N] [-l N] [-n] [-v] [-d MODE] [-t TOOL] [targets...].
+// Run under the name "ninja" (see `kiln shim`), it is a drop-in Ninja.
 // See docs/plans/2026-10-21-feat-kiln-build-runner-plan.md.
 package main
 
@@ -13,12 +14,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/Ardx19/kiln/internal/build"
+	"github.com/Ardx19/kiln/internal/config"
 	"github.com/Ardx19/kiln/internal/graph"
 	"github.com/Ardx19/kiln/internal/manifest"
+	"github.com/Ardx19/kiln/internal/metrics"
 	"github.com/Ardx19/kiln/internal/state"
 	"github.com/Ardx19/kiln/internal/sysinfo"
 )
@@ -26,142 +28,64 @@ import (
 // version is overridden at link time: -ldflags "-X main.version=v0.1.0".
 var version = "0.0.0-dev"
 
+// ninjaVersion is the Ninja that drop-in mode presents itself as: the
+// newest whose manifest language, state files and command line kiln
+// supports. Generators enable features by this number.
+const ninjaVersion = "1.13.2"
+
 func main() {
 	delayGC()
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(invokedAs(os.Args[0]), os.Args[1:], os.Stdout, os.Stderr))
 }
 
-type options struct {
-	dir, file    string
-	dryRun       bool
-	verbose      bool
-	quiet        bool
-	explain      bool
-	tool         string
-	showVersion  bool
-	targets      []string
-	jobs, failOK int
-	jobsSet      bool
-	keepGoingSet bool
-	keepDepfile  bool
-	keepRsp      bool
+// program is how kiln was started. Under the name ninja (a symlink made
+// by `kiln shim`) it's a drop-in Ninja: Ninja's messages and version, and
+// no subcommands, because generators run "ninja install" and "ninja test"
+// as targets. Under any other name it's kiln.
+type program struct {
+	name   string // message prefix: "kiln" or "ninja"
+	dropIn bool
+	// arg0 is argv[0] as given, which getopt's messages start with.
+	arg0 string
 }
 
-// parseArgs reads Ninja's command line, getopt-style: bundled short
-// flags (-nv), attached values (-j8, -Cdir), options after targets, and
-// "--" to end options.
-func parseArgs(args []string) (options, error) {
-	o := options{file: "build.ninja"}
-	withValue := "Cfjkldtw"
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "--":
-			o.targets = append(o.targets, args[i+1:]...)
-			return o, nil
-		case a == "--version":
-			o.showVersion = true
-			continue
-		case a == "--verbose":
-			o.verbose = true
-			continue
-		case a == "--quiet":
-			o.quiet = true
-			continue
-		case strings.HasPrefix(a, "--"):
-			return o, fmt.Errorf("unrecognized option '%s'", a)
-		case len(a) < 2 || a[0] != '-':
-			o.targets = append(o.targets, a)
-			continue
-		}
-		for j := 1; j < len(a); j++ {
-			c := a[j]
-			if !strings.ContainsRune(withValue, rune(c)) {
-				switch c {
-				case 'n':
-					o.dryRun = true
-				case 'v':
-					o.verbose = true
-				default:
-					return o, fmt.Errorf("invalid option -- '%c'", c)
-				}
-				continue
-			}
-			value := a[j+1:]
-			if value == "" {
-				if i+1 == len(args) {
-					return o, fmt.Errorf("option requires an argument -- '%c'", c)
-				}
-				i++
-				value = args[i]
-			}
-			if err := o.set(c, value); err != nil {
-				return o, err
-			}
-			if c == 't' {
-				// Everything after the tool name belongs to the tool.
-				o.targets = append(o.targets, args[i+1:]...)
-				return o, nil
-			}
-			break
+func invokedAs(arg0 string) program {
+	switch filepath.Base(arg0) {
+	case "ninja", "ninja-build":
+		return program{name: "ninja", dropIn: true, arg0: arg0}
+	}
+	return program{name: "kiln", arg0: arg0}
+}
+
+// getoptName is how getopt names the program in its messages.
+func (p program) getoptName() string {
+	if p.arg0 != "" {
+		return p.arg0
+	}
+	return p.name
+}
+
+func run(p program, args []string, stdout, stderr io.Writer) int {
+	if !p.dropIn {
+		if name, rest := splitSubcommand(args); name != "" {
+			return runSubcommand(p, name, rest, stdout, stderr)
 		}
 	}
-	return o, nil
+	return runNinja(p, args, stdout, stderr)
 }
 
-func (o *options) set(c byte, value string) error {
-	switch c {
-	case 'C':
-		o.dir = value
-	case 'f':
-		o.file = value
-	case 't':
-		o.tool = value
-	case 'd':
-		switch value {
-		case "explain":
-			o.explain = true
-		case "keepdepfile":
-			o.keepDepfile = true
-		case "keeprsp":
-			o.keepRsp = true
-		case "stats":
-			// Accepted; not implemented yet.
-		default:
-			return fmt.Errorf("unknown debug setting '%s'", value)
-		}
-	case 'j', 'k', 'l':
-		n, err := strconv.Atoi(value)
-		if err != nil {
-			return fmt.Errorf("invalid -%c parameter", c)
-		}
-		switch c {
-		case 'j':
-			o.jobs, o.jobsSet = n, true
-		case 'k':
-			o.failOK, o.keepGoingSet = n, true
-		}
-	case 'w':
-		// Warning flags are accepted and ignored.
-	}
-	return nil
-}
-
-func run(args []string, stdout, stderr io.Writer) int {
-	o, err := parseArgs(args)
-	if err != nil {
-		fmt.Fprintf(stderr, "kiln: %v\n", err)
-		return 2
-	}
-	if o.showVersion {
-		fmt.Fprintln(stdout, version)
-		return 0
+// runNinja runs Ninja's command line: a tool, or a build.
+func runNinja(p program, args []string, stdout, stderr io.Writer) int {
+	o, e := parseArgs(p, args, stderr)
+	if e != nil {
+		fmt.Fprint(stdout, e.stdout)
+		fmt.Fprint(stderr, e.stderr)
+		return e.code
 	}
 	if o.tool != "" {
-		fmt.Fprintf(stderr, "kiln: error: -t %s isn't available yet; run ninja -t %s (kiln shares Ninja's state files)\n", o.tool, o.tool)
-		return 1
+		return runTool(p, o, args, stdout, stderr)
 	}
-	return runBuild(o, stdout, stderr)
+	return runBuild(p, o, stdout, stderr)
 }
 
 // cycleLimit bounds how often the manifest may be regenerated in one run.
@@ -170,18 +94,24 @@ const cycleLimit = 100
 // runBuild follows Ninja's main loop: load the manifest and logs, bring
 // the manifest itself up to date, and start over whenever that
 // regenerated it; then build the targets.
-func runBuild(o options, stdout, stderr io.Writer) int {
+func runBuild(p program, o options, stdout, stderr io.Writer) int {
+	if o.stats {
+		metrics.Enable()
+	}
 	errorf := func(format string, args ...any) int {
-		fmt.Fprintf(stderr, "kiln: error: "+format+"\n", args...)
+		fmt.Fprintf(stderr, p.name+": error: "+format+"\n", args...)
 		return 1
 	}
 	if o.dir != "" {
-		fmt.Fprintf(stdout, "kiln: Entering directory `%s'\n", o.dir)
+		if !o.quiet {
+			fmt.Fprintf(stdout, "%s: Entering directory `%s'\n", p.name, o.dir)
+		}
 		if err := os.Chdir(o.dir); err != nil {
-			return errorf("chdir to '%s' - %v", o.dir, err)
+			fmt.Fprintf(stderr, "%s: fatal: chdir to '%s' - %s\n", p.name, o.dir, strerror(err))
+			return 1
 		}
 	}
-	warn := func(msg string) { fmt.Fprintf(stderr, "kiln: warning: %s\n", msg) }
+	warn := func(msg string) { fmt.Fprintf(stderr, "%s: warning: %s\n", p.name, msg) }
 	if fs := sysinfo.RemoteFilesystem("."); fs != "" {
 		warn("this build directory is on " + fs + ", which this machine reaches over a network or VM bridge. " +
 			"Every file check is slow, and timestamps can disagree with this machine's clock. " +
@@ -189,7 +119,7 @@ func runBuild(o options, stdout, stderr io.Writer) int {
 	}
 	var explain func(string)
 	if o.explain {
-		explain = func(msg string) { fmt.Fprintf(stderr, "kiln explain: %s\n", msg) }
+		explain = func(msg string) { fmt.Fprintf(stderr, "%s explain: %s\n", p.name, msg) }
 	}
 	verbosity := build.Normal
 	switch {
@@ -199,13 +129,19 @@ func runBuild(o options, stdout, stderr io.Writer) int {
 		verbosity = build.Quiet
 	}
 	status := build.NewStatus(stdout, os.Getenv("NINJA_STATUS"), verbosity, o.parallelism())
+	status.SetProgram(p.name)
 	if err := status.FormatError(); err != nil {
-		fmt.Fprintf(stderr, "kiln: fatal: %v\n", err)
+		fmt.Fprintf(stderr, "%s: fatal: %v\n", p.name, err)
 		return 1
 	}
 
+	memCfg, err := memoryConfig(p, o)
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: fatal: %v\n", p.name, err)
+		return 1
+	}
 	for cycle := 1; cycle <= cycleLimit; cycle++ {
-		st, err := manifest.Load(o.file, manifest.Options{Warn: warn})
+		st, err := manifest.Load(o.file, manifest.Options{Warn: warn, PhonyCycleErr: o.phonyCycleErr})
 		if err != nil {
 			return errorf("%v", err)
 		}
@@ -219,6 +155,8 @@ func runBuild(o options, stdout, stderr io.Writer) int {
 			FailuresAllowed: o.failuresAllowed(),
 			KeepDepfile:     o.keepDepfile,
 			KeepRsp:         o.keepRsp,
+			MaxLoad:         o.maxLoad,
+			Mem:             memCfg,
 			Profile:         t.profile,
 		}
 		scan := build.NewScanner(st, build.RealDisk{}, t.log, t.deps, explain)
@@ -252,23 +190,26 @@ func runBuild(o options, stdout, stderr io.Writer) int {
 			}
 		}
 
-		code := buildTargets(o, st, newBuilder, status, stderr)
+		code := buildTargets(p, o, st, newBuilder, status, stderr)
 		t.close()
+		if o.stats {
+			metrics.Report(stdout)
+		}
 		return code
 	}
 	return errorf("manifest '%s' still dirty after %d tries, perhaps system time is not set", o.file, cycleLimit)
 }
 
-func buildTargets(o options, st *graph.State, newBuilder func() *build.Builder, status *build.Status, stderr io.Writer) int {
+func buildTargets(p program, o options, st *graph.State, newBuilder func() *build.Builder, status *build.Status, stderr io.Writer) int {
 	targets, err := collectTargets(st, o.targets)
 	if err != nil {
-		fmt.Fprintf(stderr, "kiln: error: %v\n", err)
+		fmt.Fprintf(stderr, "%s: error: %v\n", p.name, err)
 		return 1
 	}
 	b := newBuilder()
 	for _, n := range targets {
 		if err := b.AddTarget(n); err != nil {
-			fmt.Fprintf(stderr, "kiln: error: %v\n", err)
+			fmt.Fprintf(stderr, "%s: error: %v\n", p.name, err)
 			return 1
 		}
 	}
@@ -287,31 +228,6 @@ func buildTargets(o options, st *graph.State, newBuilder func() *build.Builder, 
 		return 1
 	}
 	return 0
-}
-
-func (o options) parallelism() int {
-	if o.jobsSet {
-		return o.jobs // 0 means no limit, as in Ninja
-	}
-	// Ninja's default: two more than the CPUs we may run on.
-	switch n := sysinfo.CPUs(); n {
-	case 0, 1:
-		return 2
-	case 2:
-		return 3
-	default:
-		return n + 2
-	}
-}
-
-func (o options) failuresAllowed() int {
-	if !o.keepGoingSet {
-		return 1
-	}
-	if o.failOK <= 0 {
-		return 1 << 30 // -k 0: keep going no matter what
-	}
-	return o.failOK
 }
 
 // tree is the state kiln shares with Ninja in a build directory.
@@ -341,14 +257,20 @@ func openTree(st *graph.State, dryRun bool, warn func(string)) (*tree, error) {
 	logPath, depsPath := filepath.Join(dir, ".ninja_log"), filepath.Join(dir, ".ninja_deps")
 	t := &tree{}
 	var err error
-	if t.log, err = state.ReadBuildLog(logPath); err != nil {
+	done := metrics.Record(".ninja_log load")
+	t.log, err = state.ReadBuildLog(logPath)
+	done()
+	if err != nil {
 		if !dryRun {
 			return nil, fmt.Errorf("%v; kiln won't write to it (run ninja once, or remove it)", err)
 		}
 		warn(fmt.Sprintf("%v; treating it as empty", err))
 		t.log = &state.BuildLog{Entries: map[string]*state.LogEntry{}}
 	}
-	if t.deps, err = state.ReadDepsLog(depsPath); err != nil {
+	done = metrics.Record(".ninja_deps load")
+	t.deps, err = state.ReadDepsLog(depsPath)
+	done()
+	if err != nil {
 		if !dryRun {
 			return nil, fmt.Errorf("%v; kiln won't write to it (run ninja once, or remove it)", err)
 		}
@@ -375,27 +297,12 @@ func openTree(st *graph.State, dryRun bool, warn func(string)) (*tree, error) {
 	t.depsWriter = state.NewDepsWriter(depsPath, t.deps)
 	// Recompact as Ninja does when opening the logs for writing.
 	if t.log.NeedsRecompaction() {
-		dead := func(out string) bool {
-			if n := st.LookupNode(out); n != nil && n.InEdge != nil {
-				return false
-			}
-			m, _ := build.RealDisk{}.Stat(out)
-			return m == 0
-		}
-		if err := t.logWriter.Recompact(dead); err != nil {
+		if err := t.logWriter.Recompact(logDead(st)); err != nil {
 			return nil, fmt.Errorf("recompacting the build log: %v", err)
 		}
 	}
 	if t.deps.NeedsRecompaction() {
-		live := func(out string) bool {
-			n := st.LookupNode(out)
-			if n == nil || n.InEdge == nil {
-				return false
-			}
-			d, _ := n.InEdge.Binding("deps")
-			return d != ""
-		}
-		if err := t.depsWriter.Recompact(live); err != nil {
+		if err := t.depsWriter.Recompact(depsLive(st)); err != nil {
 			return nil, fmt.Errorf("recompacting the deps log: %v", err)
 		}
 	}
@@ -404,7 +311,8 @@ func openTree(st *graph.State, dryRun bool, warn func(string)) (*tree, error) {
 
 // configuredNinjaVersion finds the Ninja this build tree is meant for, to
 // start a new log in its format: CMake's CMAKE_MAKE_PROGRAM, then $NINJA
-// (Meson), then ninja on PATH. "" means none was found.
+// (Meson), then ninja on PATH, skipping kiln itself. "" means none was
+// found.
 func configuredNinjaVersion() string {
 	var candidates []string
 	if cache, err := os.ReadFile("CMakeCache.txt"); err == nil {
@@ -423,7 +331,9 @@ func configuredNinjaVersion() string {
 	}
 	candidates = append(candidates, "ninja")
 	for _, c := range candidates {
-		if strings.Contains(filepath.Base(c), "kiln") {
+		// kiln itself (say, through a shim) says it's 1.13.2; the tree's
+		// format should come from a real Ninja if there is one.
+		if path, err := exec.LookPath(c); err != nil || isKiln(path) {
 			continue
 		}
 		out, err := exec.Command(c, "--version").Output()
@@ -434,6 +344,37 @@ func configuredNinjaVersion() string {
 		}
 	}
 	return ""
+}
+
+// memoryConfig combines the config file, the flags (which win) and
+// $KILN_MEM=off, which switches memory scheduling off in any mode,
+// drop-in included (there are no kiln flags as ninja).
+func memoryConfig(p program, o options) (build.MemConfig, error) {
+	c, err := config.Load(config.Path())
+	if err != nil {
+		return build.MemConfig{}, err
+	}
+	m := build.MemConfig{Debug: o.schedDebug, MinJobs: c.Memory.MinJobs}
+	m.Budget, _ = config.ParseSize(c.Memory.Budget)
+	if c.Memory.Enabled != nil && !*c.Memory.Enabled {
+		m.Off = true
+	}
+	if o.memBudget != "" {
+		m.Budget, _ = config.ParseSize(o.memBudget)
+	}
+	if o.minJobs > 0 {
+		m.MinJobs = o.minJobs
+	}
+	if os.Getenv("KILN_MEM") == "off" {
+		m.Off = true
+	}
+	switch o.memMode {
+	case "off":
+		m.Off = true
+	case "on":
+		m.Off = false
+	}
+	return m, nil
 }
 
 func collectTargets(st *graph.State, args []string) ([]*graph.Node, error) {

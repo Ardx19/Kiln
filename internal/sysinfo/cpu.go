@@ -27,64 +27,14 @@ func CPUs() int {
 // system (WSL, older systemd) it never sees a v1 quota. kiln falls back
 // to v1.
 func cpuQuota(read func(string) ([]byte, error)) int {
-	self, err := read("/proc/self/cgroup")
-	if err != nil {
-		return -1
-	}
-	mounts, err := read("/proc/self/mountinfo")
-	if err != nil {
-		return -1
-	}
-	// /proc/self/cgroup lines are "id:controllers:path"; v2 is "0::path".
-	paths := map[string]string{}
-	v2Path, haveV2 := "", false
-	for _, line := range strings.Split(string(self), "\n") {
-		id, rest, ok := strings.Cut(line, ":")
-		if !ok {
-			continue
-		}
-		controllers, path, ok := strings.Cut(rest, ":")
-		if !ok {
-			continue
-		}
-		if id == "0" && controllers == "" {
-			v2Path, haveV2 = path, true
-			continue
-		}
-		for _, c := range strings.Split(controllers, ",") {
-			paths[c] = path
-		}
-	}
-	var v1Dir, v2Dir string
-	for _, line := range strings.Split(string(mounts), "\n") {
-		m, ok := parseMount(line)
-		if !ok {
-			continue
-		}
-		switch m.fsType {
-		case "cgroup":
-			if v1Dir != "" || !slicesContain(m.superOptions, "cpu") {
-				continue
-			}
-			if p, ok := paths["cpu"]; ok {
-				v1Dir = m.translate(p)
-			}
-		case "cgroup2":
-			if haveV2 && v2Dir == "" {
-				v2Dir = m.mountPoint
-				if v2Path != "/" {
-					v2Dir += v2Path
-				}
-			}
-		}
-	}
-	if v2Dir != "" {
-		if q := cgroupV2Quota(read, v2Dir); q >= 0 {
+	cg := findCgroups(read)
+	if cg.v2 != "" {
+		if q := cgroupV2Quota(read, cg.v2); q >= 0 {
 			return q
 		}
 	}
-	if v1Dir != "" {
-		return cgroupV1Quota(read, v1Dir)
+	if dir := cg.v1["cpu"]; dir != "" {
+		return cgroupV1Quota(read, dir)
 	}
 	return -1
 }
@@ -125,50 +75,4 @@ func cgroupV1Quota(read func(string) ([]byte, error), dir string) int {
 		return -1
 	}
 	return int(q / p)
-}
-
-// mount is one /proc/self/mountinfo line.
-type mount struct {
-	root, mountPoint, fsType string
-	superOptions             []string
-}
-
-// parseMount parses "id parent dev root mountpoint options [optional...] -
-// fstype source superoptions".
-func parseMount(line string) (mount, bool) {
-	f := strings.Split(line, " ")
-	if len(f) < 10 {
-		return mount{}, false
-	}
-	sep := -1
-	for i := 6; i < len(f); i++ {
-		if f[i] == "-" {
-			sep = i
-			break
-		}
-	}
-	if sep < 0 || sep+4 != len(f) {
-		return mount{}, false
-	}
-	return mount{root: f[3], mountPoint: f[4], fsType: f[sep+1],
-		superOptions: strings.Split(f[sep+3], ",")}, true
-}
-
-// translate maps a cgroup path to a directory under this mount, or "" if
-// the path isn't inside the mount's root.
-func (m mount) translate(path string) string {
-	rest, ok := strings.CutPrefix(path, m.root)
-	if !ok || rest == ".." || strings.HasPrefix(rest, "../") {
-		return ""
-	}
-	return strings.TrimSuffix(m.mountPoint+"/"+strings.TrimPrefix(rest, "/"), "/")
-}
-
-func slicesContain(xs []string, x string) bool {
-	for _, y := range xs {
-		if y == x {
-			return true
-		}
-	}
-	return false
 }

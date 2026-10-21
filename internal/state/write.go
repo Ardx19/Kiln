@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"os"
 	"sort"
+
+	"github.com/Ardx19/kiln/internal/metrics"
 )
 
 // LogWriter appends records to a .ninja_log in a fixed version, the way
@@ -94,6 +96,7 @@ func (w *LogWriter) Close() error {
 // outputs for which dead returns true, through a temporary file and a
 // rename, as Ninja does.
 func (w *LogWriter) Recompact(dead func(output string) bool) error {
+	defer metrics.Record(".ninja_log recompact")()
 	if w.f != nil {
 		w.f.Close()
 		w.f = nil
@@ -258,6 +261,7 @@ func (w *DepsWriter) Close() error {
 // live returns true, renumbering paths in order of first use, as Ninja
 // does.
 func (w *DepsWriter) Recompact(live func(output string) bool) error {
+	defer metrics.Record(".ninja_deps recompact")()
 	w.Close()
 	tmp := w.path + ".recompact"
 	os.Remove(tmp)
