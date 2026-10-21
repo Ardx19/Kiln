@@ -3,7 +3,7 @@ title: "kiln: Ninja-compatible build runner — implementation plan"
 type: feat
 status: active
 date: 2026-10-21
-updated: 2026-10-21 (widened from RDKit to C/C++ projects in general; roadmap to v0.3 added after M1e)
+updated: 2026-10-22 (all milestones through M8 built; benchmarks and the v0.1.0 tag remain)
 scope: ../../project_scope.md.txt
 ---
 
@@ -21,7 +21,7 @@ The plan has nine milestones plus a stretch list:
 
 It targets Linux only, including WSL and containers.
 
-There is no code yet. The scope's status line implies Core, memory-aware scheduling and detached builds already exist, so mark them *(planned)* until they land.
+**Where it stands (2026-10-22).** M0-M4 and M6-M8 are built and tested, and so is everything in M5 except the benchmark runs and the `v0.1.0` tag. See each milestone's *Progress* note below, [DESIGN.md](../../DESIGN.md) and [the overnight log](2026-10-22-overnight-execution-plan.md). The README no longer marks features as planned.
 
 ## What a general tool has to handle
 
