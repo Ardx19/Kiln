@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 
@@ -21,12 +20,14 @@ import (
 	"github.com/Ardx19/kiln/internal/graph"
 	"github.com/Ardx19/kiln/internal/manifest"
 	"github.com/Ardx19/kiln/internal/state"
+	"github.com/Ardx19/kiln/internal/sysinfo"
 )
 
 // version is overridden at link time: -ldflags "-X main.version=v0.1.0".
 var version = "0.0.0-dev"
 
 func main() {
+	delayGC()
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
@@ -34,6 +35,7 @@ type options struct {
 	dir, file    string
 	dryRun       bool
 	verbose      bool
+	quiet        bool
 	explain      bool
 	tool         string
 	showVersion  bool
@@ -62,6 +64,9 @@ func parseArgs(args []string) (options, error) {
 			continue
 		case a == "--verbose":
 			o.verbose = true
+			continue
+		case a == "--quiet":
+			o.quiet = true
 			continue
 		case strings.HasPrefix(a, "--"):
 			return o, fmt.Errorf("unrecognized option '%s'", a)
@@ -177,11 +182,27 @@ func runBuild(o options, stdout, stderr io.Writer) int {
 		}
 	}
 	warn := func(msg string) { fmt.Fprintf(stderr, "kiln: warning: %s\n", msg) }
+	if fs := sysinfo.RemoteFilesystem("."); fs != "" {
+		warn("this build directory is on " + fs + ", which this machine reaches over a network or VM bridge. " +
+			"Every file check is slow, and timestamps can disagree with this machine's clock. " +
+			"A build directory on a local disk avoids both.")
+	}
 	var explain func(string)
 	if o.explain {
 		explain = func(msg string) { fmt.Fprintf(stderr, "kiln explain: %s\n", msg) }
 	}
-	status := build.NewStatus(stdout, os.Getenv("NINJA_STATUS"), o.verbose)
+	verbosity := build.Normal
+	switch {
+	case o.verbose:
+		verbosity = build.Verbose
+	case o.quiet:
+		verbosity = build.Quiet
+	}
+	status := build.NewStatus(stdout, os.Getenv("NINJA_STATUS"), verbosity, o.parallelism())
+	if err := status.FormatError(); err != nil {
+		fmt.Fprintf(stderr, "kiln: fatal: %v\n", err)
+		return 1
+	}
 
 	for cycle := 1; cycle <= cycleLimit; cycle++ {
 		st, err := manifest.Load(o.file, manifest.Options{Warn: warn})
@@ -231,14 +252,14 @@ func runBuild(o options, stdout, stderr io.Writer) int {
 			}
 		}
 
-		code := buildTargets(o, st, newBuilder, stdout, stderr)
+		code := buildTargets(o, st, newBuilder, status, stderr)
 		t.close()
 		return code
 	}
 	return errorf("manifest '%s' still dirty after %d tries, perhaps system time is not set", o.file, cycleLimit)
 }
 
-func buildTargets(o options, st *graph.State, newBuilder func() *build.Builder, stdout, stderr io.Writer) int {
+func buildTargets(o options, st *graph.State, newBuilder func() *build.Builder, status *build.Status, stderr io.Writer) int {
 	targets, err := collectTargets(st, o.targets)
 	if err != nil {
 		fmt.Fprintf(stderr, "kiln: error: %v\n", err)
@@ -252,11 +273,13 @@ func buildTargets(o options, st *graph.State, newBuilder func() *build.Builder, 
 		}
 	}
 	if b.AlreadyUpToDate() {
-		fmt.Fprintln(stdout, "kiln: no work to do.")
+		if !o.quiet {
+			status.Info("no work to do.")
+		}
 		return 0
 	}
 	if err := b.Build(); err != nil {
-		fmt.Fprintf(stdout, "kiln: build stopped: %v.\n", err)
+		status.Info("build stopped: %v.", err)
 		var berr *build.BuildError
 		if errors.As(err, &berr) {
 			return berr.Exit
@@ -271,7 +294,7 @@ func (o options) parallelism() int {
 		return o.jobs // 0 means no limit, as in Ninja
 	}
 	// Ninja's default: two more than the CPUs we may run on.
-	switch n := runtime.NumCPU(); n {
+	switch n := sysinfo.CPUs(); n {
 	case 0, 1:
 		return 2
 	case 2:
@@ -385,9 +408,13 @@ func openTree(st *graph.State, dryRun bool, warn func(string)) (*tree, error) {
 func configuredNinjaVersion() string {
 	var candidates []string
 	if cache, err := os.ReadFile("CMakeCache.txt"); err == nil {
+		// The entry's type varies: FILEPATH when CMake found the program,
+		// UNINITIALIZED when it came from -DCMAKE_MAKE_PROGRAM=...
 		for _, line := range strings.Split(string(cache), "\n") {
-			if v, ok := strings.CutPrefix(line, "CMAKE_MAKE_PROGRAM:FILEPATH="); ok {
-				candidates = append(candidates, strings.TrimSpace(v))
+			if rest, ok := strings.CutPrefix(line, "CMAKE_MAKE_PROGRAM:"); ok {
+				if _, v, ok := strings.Cut(rest, "="); ok {
+					candidates = append(candidates, strings.TrimSpace(v))
+				}
 			}
 		}
 	}

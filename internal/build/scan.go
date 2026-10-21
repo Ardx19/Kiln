@@ -65,6 +65,7 @@ type Scanner struct {
 	log     *state.BuildLog
 	deps    map[*graph.Node]*nodeDeps
 	explain func(msg string)
+	walked  []bool // by edge ID: edges prefetch has walked
 }
 
 // NewScanner prepares a scan of st. blog and dlog may be nil (no log
@@ -104,6 +105,7 @@ func (s *Scanner) explainf(format string, args ...any) {
 // depends on. It returns the validation nodes it found, which callers add
 // as extra targets.
 func (s *Scanner) RecomputeDirty(node *graph.Node) ([]*graph.Node, error) {
+	s.prefetch(node)
 	var all []*graph.Node
 	queue := []*graph.Node{node}
 	for len(queue) > 0 {

@@ -60,6 +60,8 @@ type Info struct {
 	// DyndepInput is only known to the build through a dyndep file
 	// ("" when the fixture has no dyndep edge).
 	DyndepInput string `json:"dyndep_input,omitempty"`
+	// SlowInput feeds a command that takes a second ("" if none).
+	SlowInput string `json:"slow_input,omitempty"`
 }
 
 const (
@@ -147,6 +149,8 @@ func Write(dir string, s Spec) (Info, error) {
 		info.InSource = true
 		info.LogDir = ".ninja-state"
 		info.DyndepInput = "gen/dyn_extra.in"
+		info.SlowInput = "gen/slow.in"
+		w.file(info.SlowInput, "slow\n")
 		w.file("gen/dyn.in", "dyn\n")
 		w.file(info.DyndepInput, "extra\n")
 		w.file(info.BuildFile, "cflags = "+flagsMarker+" -Iinclude -Iout/gen\n")
@@ -257,17 +261,19 @@ set -e
 in=$1 out=$2 dep=$3
 dir=$(dirname "$in")
 tmp="$out.tmp"
-deps="$in"
+# Depfiles separate paths with spaces, so spaces in a path are escaped.
+esc() { printf '%s' "$1" | sed 's/ /\\ /g'; }
+deps=$(esc "$in")
 : > "$tmp"
 while IFS= read -r line; do
   case $line in
     "@include "*)
       f="$dir/${line#@include }"
-      deps="$deps $f"
+      deps="$deps $(esc "$f")"
       sed 's/^/#define /' "$f" >> "$tmp" ;;
     *) printf '#define %s\n' "$line" >> "$tmp" ;;
   esac
 done < "$in"
 if cmp -s "$tmp" "$out"; then rm -f "$tmp"; else mv "$tmp" "$out"; fi
-printf '%s: %s\n' "$out" "$deps" > "$dep"
+printf '%s: %s\n' "$(esc "$out")" "$deps" > "$dep"
 `

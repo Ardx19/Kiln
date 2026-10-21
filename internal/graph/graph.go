@@ -59,6 +59,8 @@ type Node struct {
 	// Scan state, maintained while computing what's dirty.
 	mtime int64 // ns; 0 when missing; -1 before the first stat
 	Dirty bool
+	// Prefetched is set once the scan's parallel stat pass has seen it.
+	Prefetched bool
 }
 
 // StatFS stats files for the dependency scan.
@@ -106,6 +108,7 @@ func (n *Node) UpdatePhonyMtime(m int64) {
 func (n *Node) ResetState() {
 	n.mtime = -1
 	n.Dirty = false
+	n.Prefetched = false
 }
 
 // VisitMark tracks an edge's progress through a dependency scan.
@@ -120,6 +123,9 @@ const (
 
 // Edge is one build statement.
 type Edge struct {
+	// ID is the edge's position in State.Edges; it breaks ties between
+	// equally urgent edges, as in Ninja.
+	ID   int
 	Rule *Rule
 	Pool *Pool
 	// Env is the scope the edge's variables resolve in: a child scope if
@@ -135,6 +141,10 @@ type Edge struct {
 	ImplicitOuts int
 	Validations  []*Node
 	Dyndep       *Node
+
+	// CriticalPath is the edge's scheduling weight: its own expected cost
+	// plus that of the heaviest chain of edges waiting on it.
+	CriticalPath int64
 
 	// Scan state.
 	Mark         VisitMark
@@ -381,7 +391,7 @@ func (s *State) DefaultNodes() ([]*Node, error) {
 
 // AddEdge appends a new edge using rule, in the default pool.
 func (s *State) AddEdge(rule *Rule) *Edge {
-	e := &Edge{Rule: rule, Pool: DefaultPool, Env: s.Bindings}
+	e := &Edge{ID: len(s.Edges), Rule: rule, Pool: DefaultPool, Env: s.Bindings}
 	s.Edges = append(s.Edges, e)
 	return e
 }

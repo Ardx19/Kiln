@@ -20,7 +20,7 @@ make compat-short   # newest Ninja only, about 1 minute
 make compat         # every Ninja (including the system one), about 5 minutes
 ```
 
-**Fixtures.** `go run ./tools/genfixture -gen cmake|meson|ninja -out DIR` writes the same synthetic project for each generator. Reports land in `.work/compat/<fixture>-<ninja>.report.json`.
+**Fixtures.** `go run ./tools/genfixture -gen cmake|meson|ninja -out DIR` writes the same synthetic project for each generator. The script tests run on five fixture kinds: CMake, CMake with forced response files, CMake's Ninja Multi-Config (Debug and Release in one tree), Meson, and a hand-written manifest. Reports land in `.work/compat/<fixture>-<ninja>.report.json`.
 
 **Two things the harness works around on purpose:**
 
@@ -48,6 +48,8 @@ Ninja only runs under `-n`, and only one that writes the tree's log version. Any
 
 `TestKilnBuild` runs every script twice from the same snapshot: Ninja does the builds in run A, kiln in run B. They must agree at every step (commands run, exit codes, log version, leftover work). During run B, Ninja also dry-runs kiln's tree before and after each build and must see the same work, which is the tool-switch invariant. `TestKilnInterruptResume` interrupts a kiln build with SIGINT and resumes it.
 
+`TestEditDuringBuild` edits an input while the one-second command reading it runs. Ninja 1.10–1.11 then see nothing to rebuild and 1.12+ rebuild it, and kiln must do the same as the tree's Ninja. `TestLayouts` builds the CMake fixture with kiln in real-world layouts: a build dir outside the source tree, two build dirs per source, a git worktree, a relative `-C`, paths with spaces, a symlinked build dir, a read-only source tree, and an in-source manifest with `builddir` and `-f`. Afterwards neither kiln nor Ninja may find work left.
+
 kiln builds like Ninja:
 
 ```bash
@@ -55,7 +57,7 @@ go build -o bin/kiln ./cmd/kiln
 bin/kiln -C /path/to/build
 ```
 
-It takes `-j`, `-k`, `-n`, `-v`, `-f`, `-d explain|keepdepfile|keeprsp` and targets. It writes `.ninja_log` and `.ninja_deps` in the tree's existing format. A tree with no log gets the format of the Ninja it's configured with (`CMAKE_MAKE_PROGRAM`, `$NINJA`, or `ninja` on `PATH`).
+It takes `-j`, `-k`, `-n`, `-v`, `--quiet`, `-f`, `-d explain|keepdepfile|keeprsp` and targets, and honours `NINJA_STATUS` and `CLICOLOR_FORCE`. Ready edges start in critical-path order, weighted by each edge's last duration in `.ninja_log`. It writes `.ninja_log` and `.ninja_deps` in the tree's existing format. A tree with no log gets the format of the Ninja it's configured with (`CMAKE_MAKE_PROGRAM`, `$NINJA`, or `ninja` on `PATH`).
 
 Fixture trees live under `.work/` (override with `KILN_WORK`). Runs inside the CI image use `.work/ci/`, because trees made there contain `/src/...` paths.
 

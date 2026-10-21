@@ -274,6 +274,34 @@ M2, M3 and M4 depend only on M1, so they can run in parallel, for example in sep
   - smarter status output
   - full RDKit and LLVM builds with kiln. Those need your go-ahead to rebuild in your trees.
 
+**M1e is done:** tasks 8–11, the layout matrix and the speed targets.
+
+- **Scheduling.** Ready edges start in critical-path order. Each edge weighs its last duration from `.ninja_log` (or the average known duration if it has never run), where Ninja 1.12+ count every edge as 1. With history, the fixture's one-second edge starts first.
+- **Status output** matches Ninja byte for byte in a terminal and in a pipe: the overwritten line with middle elision, the `FAILED:` block, colour stripping unless `CLICOLOR_FORCE`, every `NINJA_STATUS` placeholder and its error, and `--quiet`.
+- **Clock steps.** kiln warns once when the wall clock steps back during a build. Forward steps keep mtimes in order and are ignored. The live check found the WSL steps have flipped to +3 s every 32 s ([problems/clock-steps.md](../problems/clock-steps.md)).
+- **Defaults.** `-j` counts CPUs as Ninja 1.13 does (affinity mask, capped by the cgroup v2 or v1 quota), but also reads the v1 quota on hybrid systems, where 1.13 doesn't. kiln warns when the build dir is on NFS, 9p (`/mnt/c`), virtiofs or SMB.
+- **New harness coverage.**
+  - **Ninja Multi-Config** (`cmake-multi`, Debug and Release in one tree) is a fifth fixture kind in every script test.
+  - **`TestEditDuringBuild`.** An input edited while its command runs rebuilds on 1.12+ and not on 1.10–1.11, for both tools.
+  - **`TestLayouts`** covers the whole layout matrix below.
+- **Speed.** Best of 5–11 runs on this machine (12 CPUs, WSL2, ext4):
+
+  | Tree | Ninja | kiln | Ratio |
+  |---|---|---|---|
+  | 500k-edge synthetic, `-n` no-op | 3.37 s | 3.16 s | 0.94× |
+  | 500k-edge synthetic, real no-op | 3.49 s | 3.14 s | 0.90× |
+  | protobuf (largest corpus tree), real no-op | 44.5 ms | 57.1 ms | 1.28× |
+  | GLib, real no-op | 32.2 ms | 40.4 ms | 1.25× |
+  | RDKit `rdkit-props-batch-v2/build`, `-n` (12 pending) | 167 ms | 189 ms | 1.13× |
+
+  Two changes got kiln there. It stats the files a scan will need in parallel before the scan (Ninja stats them one by one). It also leaves the garbage collector off until the heap reaches 64 MiB. kiln uses more memory than Ninja on the 500k tree (810 MB vs 497 MB).
+- **C++20 modules, built for real.** In the CI image (clang 18, CMake 4.4.4, Ninja 1.13.2), kiln builds the modules sample from scratch. After an edit to a module interface, it regenerates the dyndep file mid-build and rebuilds the importer. Neither kiln nor Ninja finds work left after either build.
+- **Full test run.** The whole compat suite passes with the RDKit trees included: 544 tests, 20 script runs (5 fixture kinds × 4 Ninja versions), all real trees, and four clock-step retries. So do `make lint test` and the CI image's `lint test compat-short`.
+- **Corpus builds with kiln, tests compared with Ninja's trees.**
+  - **protobuf v36.2**, from scratch at `-j8`: 1,139 edges in 19.3 min, against about 19 min for Ninja at its default `-j14`. The build was interrupted at edge 62 and resumed. All 4 ctest entries pass in both trees. Afterwards neither kiln nor Ninja finds work left.
+  - **GLib**: all 403 tests give the same result in the kiln-built and Ninja-built trees: 393 pass, 8 skip, `gtester-xmllint-check` fails, and `threadtests` times out.
+- **Found along the way:** the fixture's code generator didn't escape spaces in its depfile, and kiln didn't recognise `CMAKE_MAKE_PROGRAM:UNINITIALIZED=` in `CMakeCache.txt`. Both are fixed.
+
 **Tasks**
 1. **Lexer and parser** for the full Ninja language, fuzzed:
    - variables, `rule`, `default` and `pool` (with depth)
@@ -302,15 +330,15 @@ M2, M3 and M4 depend only on M1, so they can run in parallel, for example in sep
 8. **Output.** A status line that honours the `NINJA_STATUS` format, `-d explain`, `-d keepdepfile` and `-d keeprsp`.
 9. **Critical-path priority** from log durations.
 10. **Defaults.** `-j` = available CPUs + 2, where "available" respects CPU affinity and the cgroup CPU quota. Warn when the build dir is on drvfs (`/mnt/c`) or NFS.
-11. **Clock steps.** Watch the wall clock against the monotonic clock during a build, and warn when it steps. On this WSL machine it jumps back about 1.8 s every 30 s, which makes any mtime-based decision depend on timing ([problems/clock-steps.md](../problems/clock-steps.md)).
+11. **Clock steps.** Watch the wall clock against the monotonic clock during a build, and warn when it steps back. On this WSL machine it has jumped back 1.8 s, and later forward 3 s, about every 30 s, which makes any mtime-based decision depend on timing ([problems/clock-steps.md](../problems/clock-steps.md)).
 12. **Known Ninja quirks.** For each behaviour in [ninja-quirks.md](../ninja-quirks.md), decide whether kiln mirrors it or improves on it. An example is Ninja ≤ 1.11 leaving a `restat` edge dirty forever when the deps log has lost the entry for its depfile-only inputs. Improving is only allowed where real Ninja, reading kiln's state, still sees nothing to rebuild.
 
 **Acceptance**
-- [ ] Every corpus manifest parses without errors, for all generators and Ninja versions.
-- [ ] **Hashes match.** For every edge that Ninja considers clean, kiln's command hash equals the logged one. This must hold for MurmurHash64A trees (v5/v6) and rapidhash trees (v7).
-- [ ] **Deps match.** kiln's reading of each `.ninja_deps` equals `ninja -t deps` output.
-- [ ] **Dry runs agree.** On every corpus tree as it stands, kiln and Ninja choose the same edges, for each Ninja version.
-- [ ] **Differential suite** shows zero divergences across edit scenarios × generators × Ninja versions. The scenarios are:
+- [x] Every corpus manifest parses without errors, for all generators and Ninja versions.
+- [x] **Hashes match.** For every edge that Ninja considers clean, kiln's command hash equals the logged one. This must hold for MurmurHash64A trees (v5/v6) and rapidhash trees (v7).
+- [x] **Deps match.** kiln's reading of each `.ninja_deps` equals `ninja -t deps` output.
+- [x] **Dry runs agree.** On every corpus tree as it stands, kiln and Ninja choose the same edges, for each Ninja version.
+- [x] **Differential suite** shows zero divergences across edit scenarios × generators × Ninja versions. The scenarios are:
   - touch a source, touch a header, edit a header
   - add or remove an `#include`
   - change a flag (regeneration)
@@ -322,17 +350,17 @@ M2, M3 and M4 depend only on M1, so they can run in parallel, for example in sep
   - a multi-config build
   - `rspfile` edges
   - an input edited while its edge runs (v6+ semantics)
-- [ ] **Tool-switch invariant**, for each Ninja version:
+- [x] **Tool-switch invariant**, for each Ninja version:
   - after a Ninja build, `kiln` has no work to do
   - after a kiln build, `ninja` has no work to do
   - the log version never changes
-- [ ] **Layout matrix passes:**
+- [x] **Layout matrix passes:**
   - in-source and out-of-source build dirs, including one outside the source tree
   - several build dirs per source, and git worktrees
   - relative `-C`, `-f` with a non-default manifest, and `builddir`
   - paths with spaces, a symlinked build dir, and a read-only source tree
-- [ ] Full builds of the large corpus projects at a conservative `-j` succeed, and test results match Ninja-built trees.
-- [ ] A no-op build of the largest corpus tree is within 1.5× of Ninja's time. Load time on a 500k-edge synthetic manifest is within 1.5× of Ninja's.
+- [ ] Full builds of the large corpus projects at a conservative `-j` succeed, and test results match Ninja-built trees. *Done for fmt, Ninja, GLib, protobuf and the C++20 modules sample. RDKit and LLVM are waiting for your go-ahead, since building them with kiln rewrites your trees.*
+- [x] A no-op build of the largest corpus tree is within 1.5× of Ninja's time. Load time on a 500k-edge synthetic manifest is within 1.5× of Ninja's.
 
 ### M2 — Drop-in integration (S)
 

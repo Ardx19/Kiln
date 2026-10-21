@@ -75,8 +75,18 @@ From `build.cc` and `build_log.cc` in 1.11.1, 1.12.1 and 1.13.2. kiln picks the 
 - **On an interrupt or failure, Ninja signals each running command's process group** with the same signal and waits for them. It then deletes outputs whose mtime changed (always, if the edge has a depfile) and their depfiles.
 - **A command killed by SIGINT, SIGTERM or SIGHUP counts as the build being interrupted**, even if Ninja itself wasn't.
 
+## Scheduling and the status line (M1e)
+
+- **Which ready edge starts first.** Ninja 1.10 starts ready edges in memory-address order (`set<Edge*>`), which is roughly allocation order, and 1.11 in manifest order. Ninja 1.12+ prefer the edge with the longest chain of dependents after it, counting each non-phony edge as 1. kiln uses the same critical-path rule but weighs each edge by how long it took last time (from `.ninja_log`), or by the average known duration if it has never run. A one-second command therefore starts before a chain of quick ones. The order only changes when commands start, never what runs or what the logs say, so it's safe in every tree.
+- **Smart terminal.** When stdout is a terminal and `TERM` isn't empty or `dumb`, Ninja overwrites one status line: `\r`, the line elided in the middle to the terminal width, then `\x1b[K`. It prints the line when an edge starts as well as when it finishes. Otherwise it prints one line per finished edge. kiln's output is byte-for-byte the same in both modes, including a failure's `FAILED:` line, its command and its output.
+- **Colour.** Command output keeps its ANSI escapes only in a smart terminal or with `CLICOLOR_FORCE=1`. Otherwise they are stripped.
+- **`NINJA_STATUS`.** Every version stops with `unknown placeholder '%q' in $NINJA_STATUS`, even under `-n`. kiln does the same and supports Ninja 1.13's placeholders.
+
 ## Deliberate differences
 
+- **kiln warns when the wall clock steps back during a build** ([problems/clock-steps.md](problems/clock-steps.md)). Ninja says nothing. Forward steps keep every timestamp in order, so kiln ignores them.
+- **The default `-j` sees a cgroup v1 CPU quota on hybrid systems.** Ninja 1.11–1.12 read only the v1 quota. Ninja 1.13 prefers v2, and once it finds a v2 mount it stops, even if that cgroup sets no limit. On a hybrid system (WSL, older systemd) that hides a v1 quota. kiln falls back to v1, and otherwise counts as 1.13 does: the affinity mask capped by the quota, rounded down.
+- **kiln warns when the build dir is on NFS, 9p (WSL's `/mnt/c`), virtiofs or SMB.** File checks there are slow and timestamps come from another clock.
 - **`kiln -n` doesn't touch the disk.** Ninja's dry run creates output directories, briefly writes response files, deletes a leftover depfile of a `deps` edge, and creates `builddir`. None of these change what gets rebuilt.
 - **kiln won't append to a log in a format it doesn't write.** It stops with an error instead of deleting the file, as D2 says.
 - **A corrupt `.ninja_deps` tail is truncated at the last good record.** Ninja truncates *after* a record that fails validation, so the next load trips over it again.
@@ -91,5 +101,5 @@ CMake runs `ninja -t restat` and `-t recompact` when it regenerates. Meson's reg
 
 ## The environment around Ninja (WSL)
 
-- **The wall clock steps backwards.** See [problems/clock-steps.md](problems/clock-steps.md). Ninja's decisions then depend on timing, and Meson can refuse to configure ("Clock skew detected").
+- **The wall clock steps.** See [problems/clock-steps.md](problems/clock-steps.md). Ninja's decisions then depend on timing, and Meson can refuse to configure ("Clock skew detected").
 - **Windows `PATH` entries slow down tool lookups.** WSL appends Windows directories (`/mnt/c/...`) to `PATH`. Every lookup there crosses into the Windows filesystem. A Meson regeneration probing clang-tidy names spent about 31 s on 9,200 such lookups. The harness and corpus scripts drop `/mnt/*` from `PATH`. kiln's declared environment (M7) should offer the same.

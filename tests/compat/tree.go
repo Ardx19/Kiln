@@ -28,14 +28,18 @@ type Tree struct {
 type Kind struct {
 	Name string
 	Spec fixture.Spec
+	// MultiConfig configures a CMake fixture with Ninja Multi-Config,
+	// building Debug and Release by default.
+	MultiConfig bool
 }
 
 // Kinds is every fixture flavour the self-test covers.
 var Kinds = []Kind{
-	{"cmake", fixture.Spec{Generator: fixture.CMake}},
-	{"cmake-rsp", fixture.Spec{Generator: fixture.CMake, RSP: true}},
-	{"meson", fixture.Spec{Generator: fixture.Meson}},
-	{"ninja", fixture.Spec{Generator: fixture.Ninja}},
+	{Name: "cmake", Spec: fixture.Spec{Generator: fixture.CMake}},
+	{Name: "cmake-rsp", Spec: fixture.Spec{Generator: fixture.CMake, RSP: true}},
+	{Name: "cmake-multi", Spec: fixture.Spec{Generator: fixture.CMake}, MultiConfig: true},
+	{Name: "meson", Spec: fixture.Spec{Generator: fixture.Meson}},
+	{Name: "ninja", Spec: fixture.Spec{Generator: fixture.Ninja}},
 }
 
 // Setup generates, configures and builds a fixture with the reference
@@ -71,7 +75,13 @@ func setup(root string, k Kind, ref Tool, tools Tools) (*Tree, error) {
 		if tools.CMake == "" {
 			return nil, errSkip("cmake not found")
 		}
-		err = t.run(tools.CMake, "-S", t.SrcDir, "-B", t.BuildDir, "-G", "Ninja", "-DCMAKE_MAKE_PROGRAM="+ref.Path)
+		args := []string{"-S", t.SrcDir, "-B", t.BuildDir, "-G", "Ninja", "-DCMAKE_MAKE_PROGRAM=" + ref.Path}
+		if k.MultiConfig {
+			args[5] = "Ninja Multi-Config"
+			args = append(args, "-DCMAKE_CONFIGURATION_TYPES=Debug;Release",
+				"-DCMAKE_CROSS_CONFIGS=all", "-DCMAKE_DEFAULT_CONFIGS=all")
+		}
+		err = t.run(tools.CMake, args...)
 	case fixture.Meson:
 		if tools.Meson == "" {
 			return nil, errSkip("meson not found")

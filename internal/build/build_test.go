@@ -1,6 +1,8 @@
 package build
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"strings"
@@ -11,13 +13,14 @@ import (
 	"github.com/Ardx19/kiln/internal/state"
 )
 
-// fakeDisk maps paths to mtimes (and optional contents).
+// fakeDisk maps paths to mtimes (and optional contents and stat errors).
 type fakeDisk struct {
 	mtimes map[string]int64
 	files  map[string]string
+	errs   map[string]error
 }
 
-func (d fakeDisk) Stat(path string) (int64, error) { return d.mtimes[path], nil }
+func (d fakeDisk) Stat(path string) (int64, error) { return d.mtimes[path], d.errs[path] }
 
 func (d fakeDisk) ReadFile(path string) ([]byte, error) {
 	if s, ok := d.files[path]; ok {
@@ -41,7 +44,7 @@ func newWorld(t *testing.T, manifestText string) *world {
 		t.Fatal(err)
 	}
 	return &world{t: t, state: st,
-		disk: fakeDisk{mtimes: map[string]int64{}, files: map[string]string{}},
+		disk: fakeDisk{mtimes: map[string]int64{}, files: map[string]string{}, errs: map[string]error{}},
 		log:  &state.BuildLog{Version: 7, Entries: map[string]*state.LogEntry{}},
 	}
 }
@@ -61,7 +64,7 @@ func (w *world) plan(target string) ([]string, error) {
 	w.t.Helper()
 	w.state.Reset()
 	var out strings.Builder
-	b := NewBuilder(w.state, NewScanner(w.state, w.disk, w.log, w.deps, nil), NewStatus(&out, "", true),
+	b := NewBuilder(w.state, NewScanner(w.state, w.disk, w.log, w.deps, nil), NewStatus(&out, "", Verbose, 1),
 		Config{DryRun: true, Profile: Profile{LogVersion: 7}}, nil, nil)
 	if err := b.AddTarget(w.state.LookupNode(target)); err != nil {
 		return nil, err
@@ -165,9 +168,54 @@ func TestDepsLog(t *testing.T) {
 }
 
 func TestStatusFormat(t *testing.T) {
-	s := NewStatus(io.Discard, "[%s/%t %r %u %f %p%%] ", false)
-	s.total, s.started, s.finished = 4, 3, 2
+	s := NewStatus(io.Discard, "[%s/%t %r %u %f %p%%] ", Normal, 1)
+	s.total, s.started, s.finished, s.running = 4, 3, 2, 1
 	if got := s.progress(); got != "[3/4 1 1 2  50%%] " {
 		t.Errorf("progress = %q", got)
+	}
+	s.timeMillis = 3_723_000 // 1h 2m 3s
+	s.format = "%e %w"
+	if got := s.progress(); got != "3723.000 1:02:03" {
+		t.Errorf("elapsed = %q", got)
+	}
+	if err := checkStatusFormat("[%f/%t %q]"); err == nil || err.Error() != "unknown placeholder '%q' in $NINJA_STATUS" {
+		t.Errorf("checkStatusFormat = %v", err)
+	}
+}
+
+func TestElideAndStrip(t *testing.T) {
+	if got := elideMiddle("abcdefghijklmnop", 9); got != "abc...nop" {
+		t.Errorf("elideMiddle = %q", got)
+	}
+	if got := stripANSI("\x1b[1;31merror\x1b[0m: x"); got != "error: x" {
+		t.Errorf("stripANSI = %q", got)
+	}
+}
+
+// TestPrefetch has enough inputs for the parallel stat pass, which must
+// leave the plan and the errors exactly as the scan alone would.
+func TestPrefetch(t *testing.T) {
+	var m strings.Builder
+	m.WriteString(cc)
+	var objs []string
+	for i := range 2 * prefetchMin {
+		fmt.Fprintf(&m, "build o%d.o: cc s%d.c\n", i, i)
+		objs = append(objs, fmt.Sprintf("o%d.o", i))
+	}
+	fmt.Fprintf(&m, "build app: link %s\n", strings.Join(objs, " "))
+	w := newWorld(t, m.String())
+	for i := range objs {
+		w.disk.mtimes[fmt.Sprintf("s%d.c", i)] = 10
+		w.built(objs[i], 20)
+	}
+	w.built("app", 30)
+	w.expect("app")
+
+	w.disk.mtimes["s7.c"] = 25
+	w.expect("app", "cc s7.c -o o7.o", "link "+strings.Join(objs, " ")+" -o app")
+
+	w.disk.errs["s9.c"] = errors.New("stat(s9.c): permission denied")
+	if _, err := w.plan("app"); err == nil || err.Error() != "stat(s9.c): permission denied" {
+		t.Errorf("got %v", err)
 	}
 }

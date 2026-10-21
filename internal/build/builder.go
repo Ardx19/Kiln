@@ -42,7 +42,8 @@ type Builder struct {
 	start      time.Time
 	started    map[*graph.Edge]running
 	runner     *runner
-	exitStatus int // the last failing command's status
+	exitStatus int   // the last failing command's status
+	avgCost    int64 // average command duration in the log, for edges without one
 }
 
 type running struct {
@@ -63,6 +64,7 @@ func NewBuilder(st *graph.State, scan *Scanner, status *Status, cfg Config, log 
 	b := &Builder{state: st, scan: scan, status: status, cfg: cfg, log: log, deps: deps,
 		lockPath: lock, start: time.Now(), started: map[*graph.Edge]running{}}
 	b.plan = newPlan(b)
+	status.prev = b.prevDuration
 	return b
 }
 
@@ -102,11 +104,17 @@ func (e *BuildError) Error() string { return e.Msg }
 
 // Build runs the plan, a port of Ninja's Builder::Build.
 func (b *Builder) Build() error {
+	b.plan.computeCriticalPath(b.edgeCost)
 	b.plan.scheduleInitialEdges()
+	b.status.buildStarted()
+	defer b.status.buildFinished()
+	var clock *clockWatch
 	if !b.cfg.DryRun {
 		b.runner = newRunner(b.cfg.Parallelism)
 		defer b.runner.close()
 		defer b.removeLock()
+		clock = newClockWatch()
+		defer b.checkClock(clock)
 	}
 	var dryQueue []*graph.Edge
 	pending := 0
@@ -156,11 +164,13 @@ func (b *Builder) Build() error {
 				res = &result{edge: dryQueue[0]}
 				dryQueue = dryQueue[1:]
 			} else if res = b.runner.wait(); res == nil || res.interrupted() {
+				b.checkClock(clock)
 				b.cleanup()
 				return &BuildError{Msg: "interrupted by user", Exit: b.cfg.Profile.InterruptExit()}
 			}
 			pending--
 			err := b.finishCommand(res)
+			b.checkClock(clock)
 			if !res.success() {
 				b.exitStatus = res.status()
 			}
@@ -184,6 +194,51 @@ func (b *Builder) Build() error {
 		return &BuildError{Msg: msg, Exit: b.cfg.Profile.FailureExit(b.exitStatus)}
 	}
 	return nil
+}
+
+func (b *Builder) checkClock(c *clockWatch) {
+	if c == nil {
+		return
+	}
+	if msg := c.check(); msg != "" {
+		b.status.Warn(msg)
+	}
+}
+
+// prevDuration returns how long the edge's command took last time,
+// according to the build log.
+func (b *Builder) prevDuration(e *graph.Edge) (int64, bool) {
+	for _, o := range e.Outputs {
+		if en := b.scan.log.Entries[o.Path]; en != nil {
+			return max(int64(en.EndMS-en.StartMS), 1), true
+		}
+	}
+	return 0, false
+}
+
+// edgeCost is an edge's expected cost for critical-path ordering: its
+// last duration, or the average duration of edges that have one.
+func (b *Builder) edgeCost(e *graph.Edge) int64 {
+	if e.IsPhony() {
+		return 0
+	}
+	if d, ok := b.prevDuration(e); ok {
+		return d
+	}
+	if b.avgCost == 0 {
+		var sum, n int64
+		for _, other := range b.state.Edges {
+			if d, ok := b.prevDuration(other); ok && !other.IsPhony() {
+				sum += d
+				n++
+			}
+		}
+		b.avgCost = 1
+		if n > 0 {
+			b.avgCost = max(sum/n, 1)
+		}
+	}
+	return b.avgCost
 }
 
 // fail cleans up after an error that stops the build.
@@ -276,7 +331,7 @@ func (b *Builder) finishCommand(res *result) error {
 	r := b.started[e]
 	delete(b.started, e)
 	endMS := int(time.Since(b.start).Milliseconds())
-	b.status.edgeFinished(e, res)
+	b.status.edgeFinished(e, res, int64(endMS-r.startMS))
 	if !res.success() {
 		return b.plan.edgeFinished(e, false)
 	}

@@ -183,6 +183,9 @@ rule dyndep_gen
 rule dyn_copy
   command = cat $in gen/dyn_extra.in > $out && cp $out out/dyn/x.extra
   description = DYNCOPY $out
+rule slow
+  command = sleep 1 && cp $in $out
+  description = SLOW $out
 
 build out/gen/gen_version.h: gen gen/version.in | gen/gen.sh
 build console_note: note
@@ -192,6 +195,9 @@ build console_note: note
 build out/dyn/x.dd: dyndep_gen gen/dyn.in
 build out/dyn/x.txt: dyn_copy gen/dyn.in || out/dyn/x.dd
   dyndep = out/dyn/x.dd
+
+# A one-second command, so a test can edit its input while it runs.
+build out/slow/slow.txt: slow gen/slow.in
 
 `, logDir)
 	var products []string
@@ -228,7 +234,7 @@ build out/dyn/x.txt: dyn_copy gen/dyn.in || out/dyn/x.dd
 build out/app/app: link out/app/main.o %s
 
 subninja tests.ninja
-build all: phony out/app/app out/dyn/x.txt %s tests
+build all: phony out/app/app out/dyn/x.txt out/slow/slow.txt %s tests
 default all
 `, strings.Join(link, " "), strings.Join(products, " "))
 	return b.String()

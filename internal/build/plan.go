@@ -1,6 +1,7 @@
 package build
 
 import (
+	"container/heap"
 	"fmt"
 	"sort"
 
@@ -25,7 +26,8 @@ type Plan struct {
 	builder *Builder
 	want    map[*graph.Edge]want
 	order   []*graph.Edge // edges in the order they joined want, for determinism
-	ready   []*graph.Edge
+	targets []*graph.Node
+	ready   edgeQueue
 	// wanted counts edges still wanted. commands counts non-phony edges
 	// wanted and not cleaned by restat; Ninja's more_to_do needs both.
 	wanted, commands int
@@ -36,7 +38,27 @@ type Plan struct {
 // depth from when they're scheduled until they finish.
 type poolState struct {
 	use     int
-	delayed []*graph.Edge
+	delayed edgeQueue
+}
+
+// edgeQueue is a priority queue of edges: the heaviest critical path
+// first, then the lowest ID, as in Ninja.
+type edgeQueue []*graph.Edge
+
+func (q edgeQueue) Len() int { return len(q) }
+func (q edgeQueue) Less(i, j int) bool {
+	if q[i].CriticalPath != q[j].CriticalPath {
+		return q[i].CriticalPath > q[j].CriticalPath
+	}
+	return q[i].ID < q[j].ID
+}
+func (q edgeQueue) Swap(i, j int) { q[i], q[j] = q[j], q[i] }
+func (q *edgeQueue) Push(x any)   { *q = append(*q, x.(*graph.Edge)) }
+func (q *edgeQueue) Pop() any {
+	old := *q
+	e := old[len(old)-1]
+	*q = old[:len(old)-1]
+	return e
 }
 
 func newPlan(b *Builder) *Plan {
@@ -59,22 +81,17 @@ func (p *Plan) retrieveReadyEdges(e *graph.Edge) {
 		return
 	}
 	ps := p.pool(e)
-	n := 0
-	for _, d := range ps.delayed {
-		if ps.use+1 > e.Pool.Depth {
-			break
-		}
-		p.ready = append(p.ready, d)
+	for ps.delayed.Len() > 0 && ps.use+1 <= e.Pool.Depth {
+		heap.Push(&p.ready, heap.Pop(&ps.delayed))
 		ps.use++
-		n++
 	}
-	ps.delayed = ps.delayed[n:]
 }
 
 func (p *Plan) moreToDo() bool { return p.wanted > 0 && p.commands > 0 }
 
 // AddTarget adds what's needed to bring target up to date.
 func (p *Plan) AddTarget(target *graph.Node) error {
+	p.targets = append(p.targets, target)
 	_, err := p.addSubTarget(target, nil, nil)
 	return err
 }
@@ -127,7 +144,7 @@ func (p *Plan) edgeWanted(e *graph.Edge) {
 	p.wanted++
 	if !e.IsPhony() {
 		p.commands++
-		p.builder.status.edgeAdded()
+		p.builder.status.edgeAdded(e)
 	}
 }
 
@@ -137,12 +154,51 @@ func (p *Plan) scheduleWork(e *graph.Edge) {
 	}
 	p.want[e] = wantToFinish
 	if e.Pool.Depth != 0 {
-		ps := p.pool(e)
-		ps.delayed = append(ps.delayed, e)
+		heap.Push(&p.pool(e).delayed, e)
 		p.retrieveReadyEdges(e)
 		return
 	}
-	p.ready = append(p.ready, e)
+	heap.Push(&p.ready, e)
+}
+
+// computeCriticalPath weights every edge reachable from the targets: its
+// own cost (cost returns it) plus the heaviest chain of edges waiting on
+// its outputs. Ninja 1.12+ does the same with every edge costing 1; kiln
+// uses each edge's last recorded duration where it has one, so long
+// compiles start early.
+func (p *Plan) computeCriticalPath(cost func(*graph.Edge) int64) {
+	// Topological order: every edge after the edges producing its inputs.
+	var sorted []*graph.Edge
+	visited := map[*graph.Edge]bool{}
+	var visit func(e *graph.Edge)
+	visit = func(e *graph.Edge) {
+		if visited[e] {
+			return
+		}
+		visited[e] = true
+		for _, in := range e.Inputs {
+			if in.InEdge != nil {
+				visit(in.InEdge)
+			}
+		}
+		sorted = append(sorted, e)
+	}
+	for _, t := range p.targets {
+		if t.InEdge != nil {
+			visit(t.InEdge)
+		}
+	}
+	for _, e := range sorted {
+		e.CriticalPath = cost(e)
+	}
+	for i := len(sorted) - 1; i >= 0; i-- {
+		e := sorted[i]
+		for _, in := range e.Inputs {
+			if pe := in.InEdge; pe != nil {
+				pe.CriticalPath = max(pe.CriticalPath, e.CriticalPath+cost(pe))
+			}
+		}
+	}
 }
 
 func (p *Plan) scheduleInitialEdges() {
@@ -154,12 +210,10 @@ func (p *Plan) scheduleInitialEdges() {
 }
 
 func (p *Plan) findWork() *graph.Edge {
-	if len(p.ready) == 0 {
+	if p.ready.Len() == 0 {
 		return nil
 	}
-	e := p.ready[0]
-	p.ready = p.ready[1:]
-	return e
+	return heap.Pop(&p.ready).(*graph.Edge)
 }
 
 // edgeFinished records that e completed (successfully or not).
@@ -257,7 +311,7 @@ func (p *Plan) cleanNode(scan *Scanner, node *graph.Node) error {
 		p.wanted--
 		if !oe.IsPhony() {
 			p.commands--
-			p.builder.status.edgeRemoved()
+			p.builder.status.edgeRemoved(oe)
 		}
 	}
 	return nil
