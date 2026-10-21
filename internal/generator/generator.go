@@ -108,6 +108,18 @@ func detectMeson(dir string, info []byte) (Info, error) {
 	return i, nil
 }
 
+// Ctest returns the CTest that goes with the CMake that configured the
+// tree, or "ctest" if that isn't known.
+func (i Info) Ctest() string {
+	if i.cmake != "" {
+		c := filepath.Join(filepath.Dir(i.cmake), "ctest")
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	return "ctest"
+}
+
 // StageCommand returns the command that installs the build in dir into the
 // staging root stage (it ends up under stage/<prefix>). config picks a
 // configuration of a multi-config CMake build ("" for the first).

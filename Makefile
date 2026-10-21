@@ -15,7 +15,7 @@ DOCKER_RUN = docker run --rm --user $$(id -u):$$(id -g) \
 	-e KILN_WORK=/src/.work/ci -e KILN_CORPUS=/src/.work/ci/corpus \
 	-v "$(CURDIR):/src" -w /src $(CI_IMAGE)
 
-.PHONY: help build test lint tools compat compat-short corpus ci-image ci-run mem-container
+.PHONY: help build test lint tools compat compat-short corpus ci-image ci-run mem-container dist
 
 help:
 	@echo "build          build bin/kiln"
@@ -57,6 +57,20 @@ corpus: tools
 
 ci-image:
 	docker build -f ci/Dockerfile -t $(CI_IMAGE) .
+
+# Static Linux binaries for amd64 and arm64 in dist/, with checksums.
+# usage: make dist VERSION=v0.1.0
+VERSION ?= dev
+dist:
+	rm -rf dist && mkdir -p dist
+	for arch in amd64 arm64; do \
+		d=dist/kiln-$(VERSION)-linux-$$arch; mkdir -p $$d; \
+		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch $(GO) build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o $$d/kiln ./cmd/kiln; \
+		cp LICENSE NOTICE README.md $$d/; \
+		tar -C dist -czf dist/kiln-$(VERSION)-linux-$$arch.tar.gz kiln-$(VERSION)-linux-$$arch; \
+		rm -rf $$d; \
+	done
+	cd dist && sha256sum *.tar.gz > SHA256SUMS
 
 # Eight 400 MiB jobs in a 2 GiB container: kiln finishes, ninja -j8 is OOM-killed.
 mem-container: ci-image

@@ -21,9 +21,9 @@ var subcommands = map[string]func(p program, args []string, stdout, stderr io.Wr
 	"stop":    runStop,
 	"mem":     runMem,
 	"install": runInstall,
-	"test":    nil,
-	"exec":    nil,
-	"cache":   nil,
+	"test":    runTest,
+	"exec":    runExec,
+	"cache":   runCache,
 }
 
 // splitSubcommand finds the first operand of a kiln command line, skipping

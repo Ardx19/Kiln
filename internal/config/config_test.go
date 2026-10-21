@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -27,7 +28,7 @@ func TestLoad(t *testing.T) {
 		os.WriteFile(p, []byte(s), 0o644)
 		return p
 	}
-	if c, err := Load(filepath.Join(dir, "missing.toml")); err != nil || c != (Config{}) {
+	if c, err := Load(filepath.Join(dir, "missing.toml")); err != nil || !reflect.DeepEqual(c, Config{}) {
 		t.Errorf("missing file: %+v, %v", c, err)
 	}
 	c, err := Load(write("[memory]\nenabled = false\nbudget = \"6G\"\nmin_jobs = 2\n"))
@@ -43,5 +44,30 @@ func TestLoad(t *testing.T) {
 		if _, err := Load(write(in)); err == nil || !strings.Contains(err.Error(), msg) {
 			t.Errorf("Load(%q) = %v; want an error with %q", in, err, msg)
 		}
+	}
+}
+
+func TestEnvAndTestTables(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "c.toml")
+	os.WriteFile(p, []byte(`
+[env]
+mode  = "clean"
+unset = ["PYTHONPATH"]
+allow = ["CCACHE_DIR"]
+[env.set]
+PYTHONNOUSERSITE = "1"
+[env.prepend]
+PATH = ["/opt/gcc/bin", "/opt/bin"]
+[test]
+command = "ctest"
+junit   = "r.xml"
+`), 0o644)
+	c, err := Load(p)
+	if err != nil || c.Env.Mode != "clean" || c.Env.Set["PYTHONNOUSERSITE"] != "1" || len(c.Env.Prepend["PATH"]) != 2 || c.Test.JUnit != "r.xml" {
+		t.Fatalf("%+v, %v", c, err)
+	}
+	os.WriteFile(p, []byte("[env]\nmode = \"dirty\"\n"), 0o644)
+	if _, err := Load(p); err == nil {
+		t.Error("a bad env.mode should be an error")
 	}
 }

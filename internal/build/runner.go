@@ -61,6 +61,8 @@ type runner struct {
 	caught      os.Signal // the signal that interrupted the build, if any
 	// wake, if set, ends a wait early so the builder can look at memory.
 	wake chan struct{}
+	// env is the environment for commands; nil inherits.
+	env []string
 }
 
 func newRunner(parallelism int, maxLoad float64, ignoreHUP bool) *runner {
@@ -118,6 +120,7 @@ func loadAverage() float64 {
 // for a console command, which shares kiln's.
 func (r *runner) start(e *graph.Edge, command string) (int, error) {
 	cmd := exec.Command("/bin/sh", "-c", command)
+	cmd.Env = r.env
 	var out bytes.Buffer
 	if e.Pool == graph.ConsolePool {
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr

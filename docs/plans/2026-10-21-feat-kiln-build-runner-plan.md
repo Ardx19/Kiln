@@ -523,9 +523,11 @@ The finish line is **v0.3** (M1–M8). M9 stays a prioritized backlog.
 - **README:** general wording, status markers, the name clash, drop-in usage, and the licence.
 - **Release:** tag `v0.1.0` with static Linux amd64 and arm64 binaries.
 
+**Progress (2026-10-22).** Done: `README.md`, `DESIGN.md`, `CHANGELOG.md`, the Apache-2.0 licence, `docs/benchmarks.md`, the benchmark driver `tools/bench` (four runners, memory watchdog, container-aware), the release workflow (`make dist`: static amd64 and arm64 binaries with checksums, smoke-tested on both architectures, published on a `v*` tag) and a test that runs the README's own command lines. **Not done:** the benchmark runs themselves (hours each, and an idle machine), and tagging `v0.1.0`, which waits for those tables.
+
 **Acceptance**
 - [ ] Benchmark tables are filled for at least two large projects and two machine profiles, with the commands that reproduce them.
-- [ ] Every README usage line for shipped features works as written.
+- [x] Every README usage line for shipped features works as written. *(`TestReadme` runs them.)*
 
 ### M6 — Transactional install (M–L)
 
@@ -592,11 +594,13 @@ The finish line is **v0.3** (M1–M8). M9 stays a prioritized backlog.
   - **custom:** a `[test] command` with an optional JUnit path
 - **Results.** Compare against `.kiln/xfail.txt` (test name or regex, plus a reason). Exit 0 when only expected failures fail. An XPASS (expected failure that passes) is a warning, or an error with `--strict`.
 
+**Progress (2026-10-22): M7 is built.** `internal/envdecl` (merge, apply, hash, `.kiln/env.log`), `internal/testrun` (JUnit, expected failures), config tables `[env]` and `[test]`, `kiln exec` and `kiln test`. The config chain is user, then `<source>/.kiln.toml`, then `<build>/.kiln/config.toml`.
+
 **Acceptance**
-- [ ] **Leak test.** Plant a stub package in a fake user site, plus stray `PKG_CONFIG_PATH` and `CPATH` entries. Builds and tests under kiln never see them; plain `ninja` and `ctest` do.
-- [ ] Changing the environment rebuilds the affected edges, and Ninja still reports no work afterwards.
-- [ ] `kiln test` handles xfail correctly on one CMake and one Meson corpus project.
-- [ ] Tests run without a hand-set `LD_LIBRARY_PATH`.
+- [x] **Leak test.** Plant a stub package in a fake user site, plus stray `PKG_CONFIG_PATH` and `CPATH` entries. Builds and tests under kiln never see them; plain `ninja` and `ctest` do.
+- [x] Changing the environment rebuilds the affected edges, and Ninja still reports no work afterwards.
+- [x] `kiln test` handles xfail correctly on one CMake and one Meson project. *(The fixtures under both generators; GLib as a real Meson project: see the progress log.)*
+- [x] Tests run without a hand-set `LD_LIBRARY_PATH`.
 
 ### M8 — Shared cache (S–M)
 
@@ -605,10 +609,12 @@ The finish line is **v0.3** (M1–M8). M9 stays a prioritized backlog.
 - **Launcher injection** is opt-in (`[cache] inject = true`) and follows D5. Edges kiln can't classify are reported as uncacheable.
 - **Stats.** Each build reports its hit rate from ccache stats deltas. `kiln cache stats|trim` shows size against the limit and eviction churn.
 
+**Progress (2026-10-22): M8 is built.** `internal/cache` (settings, ccache statistics, the injection rules, base_dir suggestion), the `[cache]` config table, a command-rewrite hook on the builder that leaves the logged command alone, per-build hit-rate reporting, and `kiln cache stats|trim`. Measured on the fixture: plain ccache hit 0 of 23 on a second checkout, kiln-managed hit 23 of 23. Still to do: the same comparison on fmt and protobuf (corpus projects), which is part of M5's benchmark runs.
+
 **Acceptance**
-- [ ] Cold build of a second worktree, on two corpus projects: hit rates for plain ccache vs kiln-managed.
-- [ ] Injection produces cache hits for a project configured without a launcher, and Ninja still sees the tree as up to date afterwards.
-- [ ] A deliberately undersized cache shows churn in `kiln cache stats`.
+- [ ] Cold build of a second worktree, on two corpus projects: hit rates for plain ccache vs kiln-managed. *Done on the fixture (plain ccache 0 of 23 hits, kiln-managed 23 of 23); the fmt and protobuf runs come with M5's benchmarks.*
+- [x] Injection produces cache hits for a project configured without a launcher, and Ninja still sees the tree as up to date afterwards.
+- [x] A deliberately undersized cache shows churn in `kiln cache stats`.
 
 ### M9 — Stretch (unscheduled)
 

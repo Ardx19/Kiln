@@ -1,0 +1,58 @@
+name: release
+
+# Tag a version (git tag v0.1.0 && git push origin v0.1.0) to publish static
+# Linux binaries for amd64 and arm64 with checksums.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make dist VERSION=${{ github.ref_name }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+
+  smoke:
+    needs: build
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: run the binary built for this architecture
+        run: |
+          arch=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+          tar -C dist -xzf dist/kiln-${{ github.ref_name }}-linux-$arch.tar.gz
+          (cd dist && sha256sum -c SHA256SUMS --ignore-missing)
+          kiln=$PWD/dist/kiln-${{ github.ref_name }}-linux-$arch/kiln
+          $kiln --version
+          mkdir t && cd t
+          printf 'rule t\n  command = touch $out\nbuild a: t\nbuild b: t a\n' > build.ninja
+          $kiln b
+          $kiln -n | grep -q 'no work to do'
+
+  publish:
+    needs: smoke
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create ${{ github.ref_name }} dist/* --repo ${{ github.repository }} --title ${{ github.ref_name }} --generate-notes

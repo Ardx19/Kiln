@@ -1,5 +1,6 @@
 # build output
 /bin/
+/dist/
 
 # pinned tools downloaded by scripts/tools.sh
 /.tools/

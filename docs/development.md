@@ -59,6 +59,45 @@ bin/kiln -C /path/to/build
 
 It takes `-j`, `-k`, `-n`, `-v`, `--quiet`, `-f`, `-d explain|keepdepfile|keeprsp` and targets, and honours `NINJA_STATUS` and `CLICOLOR_FORCE`. Ready edges start in critical-path order, weighted by each edge's last duration in `.ninja_log`. It writes `.ninja_log` and `.ninja_deps` in the tree's existing format. A tree with no log gets the format of the Ninja it's configured with (`CMAKE_MAKE_PROGRAM`, `$NINJA`, or `ninja` on `PATH`).
 
+**Compiler cache.** ccache, managed:
+
+```toml
+# <build>/.kiln/config.toml
+[cache]
+dir      = "/work/ccache"
+base_dir = "/work"        # the common parent of your worktrees
+max_size = "20G"
+hash_dir = false          # let different build directories share entries
+inject   = true           # run ccache in front of compilers nothing launches it for
+```
+
+```bash
+kiln -C build cache stats    # size against the limit, hit rate, cleanups, base_dir hint
+kiln -C build cache trim     # evict down to the limit
+```
+
+`tests/compat/cache_test.go` builds a second checkout of a fixture in a sibling directory: plain ccache hits 0 of 23 compiles, kiln-managed settings hit all 23; injection gets hits on a project configured with no launcher and Ninja still finds nothing to do; an undersized cache shows its cleanups in `kiln cache stats`. Unit tests in `internal/cache` cover the injection rules.
+
+**Environment and tests.** Declare the environment once and every build, test and `kiln exec` command sees it:
+
+```toml
+# <build>/.kiln/config.toml (or <source>/.kiln.toml, or ~/.config/kiln/config.toml)
+[env]
+unset = ["PYTHONPATH", "CPATH", "PKG_CONFIG_PATH"]
+[env.set]
+PYTHONNOUSERSITE = "1"
+[env.prepend]
+LD_LIBRARY_PATH = ["/opt/deps/lib"]
+```
+
+```bash
+kiln -C build exec -- cmake -S . -B build      # configure under the same environment
+kiln -C build test                             # build, run the tests, apply .kiln/xfail.txt
+kiln -C build test --strict                    # an expected failure that passes is an error
+```
+
+Tests in `tests/compat/env_test.go`: strays in `PKG_CONFIG_PATH`/`CPATH` and a package in a fake user site are invisible under kiln and visible to plain `ninja`; changing, removing or adding the declaration rebuilds while an undeclared variable doesn't; `kiln test` with expected failures and `--strict` under CMake and Meson; and a test that only passes with the declared `LD_LIBRARY_PATH`. Unit tests are in `internal/envdecl` and `internal/testrun`.
+
 **Install.** `kiln install` installs the build into its prefix and records ownership (see [ninja-quirks.md](ninja-quirks.md)):
 
 ```bash

@@ -35,7 +35,17 @@ type Config struct {
 	Observer Observer
 	// IgnoreHUP keeps a detached build running when its session gets SIGHUP.
 	IgnoreHUP bool
-	Profile   Profile
+	// Env is the environment commands run in (NAME=value); nil inherits
+	// kiln's own.
+	Env []string
+	// OnBuilt, if set, is told the outputs of each command that
+	// succeeded.
+	OnBuilt func(outputs []string)
+	// Rewrite, if set, changes the command that is run (a compiler cache
+	// in front of it). The logged command, and so its hash, stay the
+	// manifest's, so Ninja still sees the tree as up to date.
+	Rewrite func(command string) string
+	Profile Profile
 }
 
 // Builder brings targets up to date. It is a port of Ninja's Builder.
@@ -125,6 +135,7 @@ func (b *Builder) Build() error {
 	var clock *clockWatch
 	if !b.cfg.DryRun {
 		b.runner = newRunner(b.cfg.Parallelism, b.cfg.MaxLoad, b.cfg.IgnoreHUP)
+		b.runner.env = b.cfg.Env
 		defer b.runner.close()
 		defer b.removeLock()
 		clock = newClockWatch()
@@ -342,6 +353,9 @@ func (b *Builder) startEdge(e *graph.Edge) error {
 	if err != nil {
 		return err
 	}
+	if b.cfg.Rewrite != nil {
+		command = b.cfg.Rewrite(command)
+	}
 	pgid, err := b.runner.start(e, command)
 	if err != nil {
 		return fmt.Errorf("command '%s' failed to start: %v", command, err)
@@ -419,6 +433,9 @@ func (b *Builder) finishCommand(res *result) error {
 	}
 	if err := b.log.Record(outs, r.startMS, endMS, recordMtime, state.HashCommand(b.log.Version(), command)); err != nil {
 		return fmt.Errorf("Error writing to build log: %v", err)
+	}
+	if b.cfg.OnBuilt != nil {
+		b.cfg.OnBuilt(outs)
 	}
 	if depsType != "" {
 		ins := make([]string, len(depsNodes))

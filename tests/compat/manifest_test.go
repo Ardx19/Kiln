@@ -138,6 +138,12 @@ func realTrees(t *testing.T) (names, trees []string) {
 		if _, err := os.Stat(filepath.Join(d, "build.ninja")); err != nil {
 			continue
 		}
+		// A build in progress rewrites the logs under the test: Ninja
+		// 1.12+ and kiln keep .ninja_lock while a build runs.
+		if _, err := os.Stat(filepath.Join(d, ".ninja_lock")); err == nil {
+			t.Logf("skipping %s: a build is running there", d)
+			continue
+		}
 		name, _ := filepath.Rel(repo, d)
 		if strings.HasPrefix(name, "..") {
 			name = d

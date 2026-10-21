@@ -18,6 +18,7 @@ import (
 
 	"github.com/Ardx19/kiln/internal/build"
 	"github.com/Ardx19/kiln/internal/config"
+	"github.com/Ardx19/kiln/internal/envdecl"
 	"github.com/Ardx19/kiln/internal/graph"
 	"github.com/Ardx19/kiln/internal/manifest"
 	"github.com/Ardx19/kiln/internal/metrics"
@@ -25,6 +26,9 @@ import (
 	"github.com/Ardx19/kiln/internal/state"
 	"github.com/Ardx19/kiln/internal/sysinfo"
 )
+
+// envLogPath records the environment each output was built under.
+const envLogPath = ".kiln/env.log"
 
 // version is overridden at link time: -ldflags "-X main.version=v0.1.0".
 var version = "0.0.0-dev"
@@ -155,6 +159,29 @@ func runBuild(p program, o options, stdout, stderr io.Writer) (code int) {
 		fmt.Fprintf(stderr, "%s: fatal: %v\n", p.name, err)
 		return 1
 	}
+	// The declared environment: what commands run in, and what makes edges
+	// built under a different declaration dirty.
+	cfgs, _, err := loadConfigs()
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: fatal: %v\n", p.name, err)
+		return 1
+	}
+	decl := declared(cfgs)
+	envHash := decl.Hash()
+	var jobEnv []string
+	if !decl.Empty() {
+		jobEnv = decl.Apply(nil)
+	}
+	cc := newCacheRun(cfgs, warn)
+	jobEnv = cc.addEnv(jobEnv)
+	var envLog *envdecl.Log
+	if _, statErr := os.Stat(envLogPath); envHash != "" || statErr == nil {
+		if envLog, err = envdecl.OpenLog(envLogPath); err != nil {
+			fmt.Fprintf(stderr, "%s: fatal: %v\n", p.name, err)
+			return 1
+		}
+		defer envLog.Close()
+	}
 	for cycle := 1; cycle <= cycleLimit; cycle++ {
 		st, err := manifest.Load(o.file, manifest.Options{Warn: warn, PhonyCycleErr: o.phonyCycleErr})
 		if err != nil {
@@ -173,10 +200,20 @@ func runBuild(p program, o options, stdout, stderr io.Writer) (code int) {
 			MaxLoad:         o.maxLoad,
 			Mem:             memCfg,
 			Observer:        obs,
+			Env:             jobEnv,
+			Rewrite:         cc.rewrite(),
 			IgnoreHUP:       os.Getenv("KILN_RUN_ID") != "",
 			Profile:         t.profile,
 		}
 		scan := build.NewScanner(st, build.RealDisk{}, t.log, t.deps, explain)
+		if envLog != nil {
+			scan.EnvChanged = func(output string) bool { return envLog.Changed(output, envHash) }
+			cfg.OnBuilt = func(outs []string) {
+				if err := envLog.Record(outs, envHash); err != nil {
+					warn(fmt.Sprintf("recording the environment: %v", err))
+				}
+			}
+		}
 		newBuilder := func() *build.Builder {
 			return build.NewBuilder(st, scan, status, cfg, t.logWriter, t.depsWriter)
 		}
@@ -207,7 +244,9 @@ func runBuild(p program, o options, stdout, stderr io.Writer) (code int) {
 			}
 		}
 
+		cc.start()
 		code := buildTargets(p, o, st, newBuilder, status, stderr)
+		cc.report(status)
 		t.close()
 		if o.stats {
 			metrics.Report(stdout)

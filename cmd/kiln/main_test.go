@@ -21,10 +21,6 @@ func TestRun(t *testing.T) {
 	if got := run(kilnProg, []string{"-x"}, io.Discard, &errOut); got != 1 || !strings.HasPrefix(errOut.String(), "kiln: invalid option -- 'x'\nusage: kiln") {
 		t.Errorf("kiln -x = %d, %q", got, errOut.String())
 	}
-	errOut.Reset()
-	if got := run(kilnProg, []string{"-C", "x", "exec"}, io.Discard, &errOut); got != 1 || !strings.Contains(errOut.String(), "run 'kiln build exec'") {
-		t.Errorf("kiln status = %d, %q", got, errOut.String())
-	}
 }
 
 func TestInvokedAs(t *testing.T) {

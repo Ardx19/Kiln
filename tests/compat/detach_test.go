@@ -207,3 +207,18 @@ func TestDetachStop(t *testing.T) {
 		}
 	}
 }
+
+// TestDetachNothingToDo: a detached build that has nothing to do finishes
+// before the handshake and succeeds.
+func TestDetachNothingToDo(t *testing.T) {
+	e := newMemEnv(t, "detach-noop")
+	defer e.settle()
+	e.manifest("touch $out", "a")
+	if out, code := e.runKiln([]string{"build"}); code != 0 {
+		t.Fatalf("build: exit %d\n%s", code, out)
+	}
+	out, code := e.runKiln([]string{"build", "--detach"})
+	if code != 0 || !strings.Contains(out, "no work to do") {
+		t.Errorf("detached no-op: exit %d\n%s", code, out)
+	}
+}

@@ -157,11 +157,13 @@ func detach(p program, args []string, stdout, stderr io.Writer) int {
 			// The daemon is gone before it said it was running: an early
 			// failure such as a bad manifest.
 			relay()
-			code := 1
-			if ee, ok := err.(*exec.ExitError); ok {
-				code = ee.ExitCode()
+			switch ee, ok := err.(*exec.ExitError); {
+			case err == nil:
+				return 0 // finished at once, e.g. nothing to do
+			case ok:
+				return ee.ExitCode()
 			}
-			return code
+			return 1
 		case <-deadline:
 			fmt.Fprintf(stderr, "%s: error: the build didn't start within a minute; see %s\n", p.name, filepath.Join(rdir, "output.log"))
 			return 1

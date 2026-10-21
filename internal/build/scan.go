@@ -68,6 +68,10 @@ type Scanner struct {
 	deps    map[*graph.Node]*nodeDeps
 	explain func(msg string)
 	walked  []bool // by edge ID: edges prefetch has walked
+	// EnvChanged, if set, reports whether output was built under a
+	// different declared environment than the current one; the edge is
+	// then dirty.
+	EnvChanged func(output string) bool
 }
 
 // NewScanner prepares a scan of st. blog and dlog may be nil (no log
@@ -282,6 +286,10 @@ func (s *Scanner) recomputeOutputDirty(edge *graph.Edge, mostRecent *graph.Node,
 	}
 	if !out.Exists() {
 		s.explainf("output %s doesn't exist", out.Path)
+		return true, nil
+	}
+	if s.EnvChanged != nil && s.EnvChanged(out.Path) {
+		s.explainf("the declared environment changed since %s was built", out.Path)
 		return true, nil
 	}
 
