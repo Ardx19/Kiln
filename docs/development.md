@@ -29,6 +29,20 @@ make compat         # every Ninja (including the system one), about 5 minutes
 
 Known Ninja behaviours that look like failures are listed in [ninja-quirks.md](ninja-quirks.md).
 
+### Manifest parsing against Ninja
+
+`TestManifestCases` and `TestRealManifests` (in the same `compat` package) compare kiln's parser with the newest Ninja. They check the outputs and rules from `-t targets all`, the evaluated commands from `-t commands -s`, and the error messages. Both Ninja tools exit before Ninja opens `.ninja_log`, so they're safe on any tree. To include your own build trees:
+
+```bash
+KILN_TREES=/path/to/build:/path/to/other-build go test -tags compat -run Manifest ./tests/compat
+```
+
+Parse speed on a real tree:
+
+```bash
+KILN_BENCH_DIR=/path/to/build go test ./internal/manifest -run XXX -bench Load
+```
+
 ## Corpus
 
 ```bash

@@ -18,6 +18,19 @@ The harness reproduces this with "delete `.ninja_deps`, rebuild" on CMake and Me
 
 **Option for kiln:** compute the recorded mtime including depfile inputs. Ninja 1.11, reading that log, would then also see the edge as clean.
 
+## Manifest language details kiln mirrors (M1a)
+
+All of these are checked against real Ninja by `TestManifestCases` in `tests/compat`:
+
+- **Edge variables are evaluated in the enclosing scope, not the edge's own.** After `a = inner`, a following `b = $a` on the same edge sees the file's `a`.
+- **File-scope variables can shadow rule variables.** This applies only to edges with no bindings of their own. Such an edge resolves names in the file scope, which is checked before the rule (`BindingEnv::LookupWithFallback`). Give the edge any binding and the rule wins again. The manual's lookup order doesn't mention this.
+- **Variable names.** `$name` stops at `.` (so `$a.b` is `$a` followed by `.b`), but `${a.b}` names the variable `a.b`.
+- **A tab inside a rule or pool block quietly ends the block**, which usually surfaces as "expected 'command =' line". Only a tab at the top level gives "tabs are not allowed".
+- **A comment on the last line needs a trailing newline**, or it's a lexing error. So is a lone `\r`.
+- **A phony edge that lists its own output as an input** has that input dropped, with a warning (old CMake wrote these).
+- **`..` that climbs above `/` is kept** (`/a/../../b` stays `/../b`). This is one of the few places Go's `filepath.Clean` would differ.
+- **Pool `depth` is read with C `atoi`**, so `3abc` is 3.
+
 ## CMake logs custom command outputs twice
 
 CMake declares each custom command output under both its relative path and an absolute implicit output (`${cmake_ninja_workdir}…`), so a single run writes two `.ninja_log` entries.

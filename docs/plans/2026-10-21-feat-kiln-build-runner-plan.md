@@ -218,6 +218,16 @@ M2, M3 and M4 depend only on M1, so they can run in parallel, for example in sep
 
 ### M1 — Core engine (L)
 
+**Progress (2026-10-21).** M1a is done: tasks 1–2 and the graph construction part of task 3.
+
+- **Code.** `internal/manifest` holds the lexer and parser, ported statement by statement from Ninja 1.13.2. `internal/graph` holds nodes, edges, scopes, evaluation, path canonicalisation and shell escaping.
+- **Checked against Ninja** by `tests/compat` (`TestManifestCases`, `TestRealManifests`):
+  - **55 tricky manifests** match Ninja exactly. On the 27 Ninja accepts, kiln lists the same outputs and rules and evaluates the same commands. The other 28, both tools reject with the same first line of the error message.
+  - **49 real trees:** all 11 local RDKit trees, the corpus (fmt, fmt multi-config, GLib, protobuf, ninja, C++20 modules) and the compat fixtures. kiln lists the same outputs with the same rules in the same order, and evaluates the same command for every non-phony edge, about 33,700 in total.
+  - **Mutation check:** three injected bugs (edge-binding scope, shell escaping, path canonicalisation) are each caught.
+- **Speed.** The largest RDKit manifest (5,636 edges) loads in about 40 ms. Ninja's whole `-t targets all` process takes 42–47 ms on the same tree.
+- **Still to do in M1:** `dyndep` loading (the parser records the binding and checks it's an input), and the LLVM tree, which hasn't been built yet.
+
 **Tasks**
 1. **Lexer and parser** for the full Ninja language, fuzzed:
    - variables, `rule`, `default` and `pool` (with depth)
