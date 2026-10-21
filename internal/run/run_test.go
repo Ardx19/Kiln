@@ -62,6 +62,18 @@ func TestLifecycle(t *testing.T) {
 	}
 }
 
+func TestGitignore(t *testing.T) {
+	inTempDir(t)
+	s, err := Open("", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Finish(0, "")
+	if b, _ := os.ReadFile(Dir + "/.gitignore"); string(b) != "*\n" {
+		t.Errorf(".kiln/.gitignore = %q", b)
+	}
+}
+
 func TestDied(t *testing.T) {
 	inTempDir(t)
 	s, err := Open("", nil, false)

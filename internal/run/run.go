@@ -112,6 +112,10 @@ func Open(id string, targets []string, detached bool) (*Session, error) {
 	if err := os.MkdirAll(filepath.Join(Dir, "runs"), 0o777); err != nil {
 		return nil, err
 	}
+	// Keep kiln's directory out of `git status` in an in-source build.
+	if _, err := os.Stat(filepath.Join(Dir, ".gitignore")); err != nil {
+		os.WriteFile(filepath.Join(Dir, ".gitignore"), []byte("*\n"), 0o644)
+	}
 	lock, err := os.OpenFile(filepath.Join(Dir, "lock"), os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
 		return nil, err

@@ -106,9 +106,8 @@ func main() {
 		if *only != "" && !strings.Contains(","+*only+",", ","+r.name+",") {
 			continue
 		}
-		clean := exec.Command(*ninja, append([]string{"-C", *dir, "-t", "clean"}, targets...)...)
-		if o, err := clean.CombinedOutput(); err != nil {
-			fmt.Fprintf(os.Stderr, "bench: cleaning failed: %v\n%s", err, o)
+		if err := clean(*ninja, *dir, targets); err != nil {
+			fmt.Fprintf(os.Stderr, "bench: cleaning failed: %v\n", err)
 			os.Exit(1)
 		}
 		if r.pre != nil {
@@ -137,6 +136,29 @@ func main() {
 		}
 	}
 	fmt.Println(Table(results))
+}
+
+// clean makes the targets out of date: output files are removed, anything
+// else (a phony target) is cleaned by ninja -t clean.
+func clean(ninja, dir string, targets []string) error {
+	var rest []string
+	for _, t := range targets {
+		p := filepath.Join(dir, t)
+		if fi, err := os.Lstat(p); err == nil && fi.Mode().IsRegular() {
+			if err := os.Remove(p); err != nil {
+				return err
+			}
+			continue
+		}
+		rest = append(rest, t)
+	}
+	if len(rest) == 0 {
+		return nil
+	}
+	if out, err := exec.Command(ninja, append([]string{"-C", dir, "-t", "clean"}, rest...)...).CombinedOutput(); err != nil {
+		return fmt.Errorf("%v\n%s", err, out)
+	}
+	return nil
 }
 
 // run times one command, sampling memory twice a second.

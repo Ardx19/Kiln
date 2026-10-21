@@ -103,6 +103,10 @@ const cycleLimit = 100
 // the manifest itself up to date, and start over whenever that
 // regenerated it; then build the targets.
 func runBuild(p program, o options, stdout, stderr io.Writer) (code int) {
+	// A detached build's id comes in the environment; the jobs it runs
+	// must not inherit it (a kiln inside a job would take it for a daemon).
+	runID := os.Getenv("KILN_RUN_ID")
+	os.Unsetenv("KILN_RUN_ID")
 	if o.stats {
 		metrics.Enable()
 	}
@@ -123,7 +127,7 @@ func runBuild(p program, o options, stdout, stderr io.Writer) (code int) {
 	var obs build.Observer
 	if !o.dryRun && os.Getenv("KILN_NO_LOCK") == "" {
 		// One build at a time per tree, recorded for status, wait and log.
-		sess, err := runstate.Open(os.Getenv("KILN_RUN_ID"), o.targets, os.Getenv("KILN_RUN_ID") != "")
+		sess, err := runstate.Open(runID, o.targets, runID != "")
 		if err != nil {
 			fmt.Fprintf(stderr, "%s: error: %v\n", p.name, err)
 			return 1
@@ -202,7 +206,7 @@ func runBuild(p program, o options, stdout, stderr io.Writer) (code int) {
 			Observer:        obs,
 			Env:             jobEnv,
 			Rewrite:         cc.rewrite(),
-			IgnoreHUP:       os.Getenv("KILN_RUN_ID") != "",
+			IgnoreHUP:       runID != "",
 			Profile:         t.profile,
 		}
 		scan := build.NewScanner(st, build.RealDisk{}, t.log, t.deps, explain)

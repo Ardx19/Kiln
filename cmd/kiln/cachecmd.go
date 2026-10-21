@@ -174,6 +174,9 @@ func runCache(p program, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "size: %s, %d files\n", size(sizeKiB<<10), st["files_in_cache"])
 	}
 	fmt.Fprintf(stdout, "hits: %d, misses: %d (%.0f%% hit rate)\n", st.Hits(), st.Misses(), st.Rate())
+	if limit > 0 && sizeKiB<<10 > limit {
+		fmt.Fprintf(stdout, "the cache is over its limit; '%s cache trim' evicts down to it, and a limit this small keeps evicting\n", p.name)
+	}
 	if n := st["cleanups_performed"]; n > 0 {
 		fmt.Fprintf(stdout, "cleanups performed: %d (the cache filled up and evicted entries", n)
 		if limit > 0 && float64(sizeKiB<<10) > 0.9*float64(limit) {

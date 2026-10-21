@@ -175,13 +175,17 @@ func TestCacheChurn(t *testing.T) {
 		t.Fatalf("cache stats: %v\n%s", err, out)
 	}
 	s := string(out)
-	if !strings.Contains(s, "cache directory: "+dir) || !strings.Contains(s, "hit rate") || !strings.Contains(s, "cleanups performed") {
+	// Depending on the ccache version, an undersized cache shows either
+	// cleanups already performed or a size over its limit.
+	if !strings.Contains(s, "cache directory: "+dir) || !strings.Contains(s, "hit rate") ||
+		!(strings.Contains(s, "cleanups performed") || strings.Contains(s, "over its limit")) {
 		t.Errorf("stats of an undersized cache:\n%s", s)
 	}
 	// trim cleans up to the configured limit.
 	cmd = exec.Command(e.kiln, "cache", "-C", trees[0], "trim")
 	cmd.Env = e.env
-	if out, err := cmd.CombinedOutput(); err != nil || !strings.Contains(string(out), "cleaned up") || !strings.Contains(string(out), "of 19 KiB") {
+	if out, err := cmd.CombinedOutput(); err != nil || !strings.Contains(string(out), "cleaned up") ||
+		strings.Contains(string(out), "over its limit") || !strings.Contains(string(out), "cleanups performed") {
 		t.Errorf("trim: %v\n%s", err, out)
 	}
 }
