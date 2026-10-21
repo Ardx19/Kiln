@@ -65,10 +65,10 @@ func TestSelf(t *testing.T) {
 				var a, b []Record
 				for attempt := 1; ; attempt++ {
 					var err error
-					if a, err = RunScript(tree, Runner{"A", n.Path}, steps, 1); err != nil {
+					if a, err = RunScript(tree, Runner{"A", n.Path}, nil, steps, 1); err != nil {
 						t.Fatal(err)
 					}
-					if b, err = RunScript(tree, Runner{"B", n.Path}, steps, 1); err != nil {
+					if b, err = RunScript(tree, Runner{"B", n.Path}, nil, steps, 1); err != nil {
 						t.Fatal(err)
 					}
 					if c := Comparable(a, b); c == len(steps) || attempt == attempts {

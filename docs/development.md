@@ -44,6 +44,17 @@ KILN_TREES=/path/to/build:/path/to/other-build go test -tags compat -run Manifes
 
 Ninja only runs under `-n`, and only one that writes the tree's log version. Any other Ninja would delete the log on load (see [ninja-quirks.md](ninja-quirks.md)). The test fails if the state files change.
 
+`TestKilnDryRun` runs every edit script with Ninja doing the builds. At each step it compares `kiln -n -v` with `ninja -n -v`, before and after the build. `TestRealDryRun` does the same comparison once on every real tree, under the same safety rules as `TestRealState`. `TestDepfileCases` feeds tricky depfiles to each Ninja version (through `deps = gcc`) and compares the parsed inputs with kiln's.
+
+kiln itself so far only does Ninja's dry run:
+
+```bash
+go build -o bin/kiln ./cmd/kiln
+bin/kiln -C /path/to/build -n -v
+```
+
+It also accepts `-d explain`, `-f` and targets.
+
 Fixture trees live under `.work/` (override with `KILN_WORK`). Runs inside the CI image use `.work/ci/`, because trees made there contain `/src/...` paths.
 
 Parse speed on a real tree:

@@ -177,9 +177,21 @@ rule gen
 rule note
   command = echo console
   pool = console
+rule dyndep_gen
+  command = printf 'ninja_dyndep_version = 1\nbuild out/dyn/x.txt | out/dyn/x.extra : dyndep | gen/dyn_extra.in\n' > $out
+  description = DYNDEP $out
+rule dyn_copy
+  command = cat $in gen/dyn_extra.in > $out && cp $out out/dyn/x.extra
+  description = DYNCOPY $out
 
 build out/gen/gen_version.h: gen gen/version.in | gen/gen.sh
 build console_note: note
+
+# dyndep: out/dyn/x.txt's extra input and output are only known from
+# out/dyn/x.dd, which is written during the build.
+build out/dyn/x.dd: dyndep_gen gen/dyn.in
+build out/dyn/x.txt: dyn_copy gen/dyn.in || out/dyn/x.dd
+  dyndep = out/dyn/x.dd
 
 `, logDir)
 	var products []string
@@ -216,7 +228,7 @@ build console_note: note
 build out/app/app: link out/app/main.o %s
 
 subninja tests.ninja
-build all: phony out/app/app %s tests
+build all: phony out/app/app out/dyn/x.txt %s tests
 default all
 `, strings.Join(link, " "), strings.Join(products, " "))
 	return b.String()

@@ -240,6 +240,19 @@ M2, M3 and M4 depend only on M1, so they can run in parallel, for example in sep
   - **Deps.** For about 11,800 outputs, kiln's reading of `.ninja_deps` reproduces `ninja -t deps` byte for byte.
 - **Safety.** Ninja runs only with `-n`, only with a Ninja that writes the tree's log version, and only after kiln has checked the deps log for corruption. `.ninja_log` and `.ninja_deps` are fingerprinted before and after each check, and no check changed them.
 
+**M1c is done:** task 5, the planning half of task 3 (dyndep) and a dry-run-only task 6, plus `kiln -n`.
+
+- **Code.**
+  - `internal/build` ports Ninja's dependency scan, deps-log/depfile/dyndep loading, plan and dry-run build loop.
+  - `internal/depfile` parses depfiles in the 1.10, 1.12 and 1.13 dialects, chosen from the tree's log version.
+  - `cmd/kiln` parses Ninja's command line and does `-n [-v] [-d explain]`, including the "regenerate the manifest first" step.
+- **Checked against Ninja** (`TestKilnDryRun`, `TestRealDryRun`, `TestDepfileCases`):
+  - **Every compat script step.** `kiln -n` and `ninja -n` choose the same commands before and after each real build. That's 16 scripts (4 Ninja versions × 4 fixture types, including a dyndep chain), 384 steps and 2,322 commands.
+  - **64 real trees** agree on 8,504 commands to run, 8,187 of them across the 11 RDKit trees.
+  - **The C++20 modules tree in the CI image** agrees both dirty (8 commands, with dyndep files regenerated and reloaded mid-plan) and clean.
+  - **Depfiles.** 25 tricky depfiles parse as each Ninja version parses them.
+- **Still to do in M1:** running commands (M1d), the clock-step warning, critical-path order and the explain/status polish (M1e).
+
 **Tasks**
 1. **Lexer and parser** for the full Ninja language, fuzzed:
    - variables, `rule`, `default` and `pool` (with depth)

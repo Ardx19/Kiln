@@ -57,6 +57,9 @@ type Info struct {
 	// LogDir is where .ninja_log lives relative to the build dir
 	// ("" unless the manifest sets builddir).
 	LogDir string `json:"log_dir"`
+	// DyndepInput is only known to the build through a dyndep file
+	// ("" when the fixture has no dyndep edge).
+	DyndepInput string `json:"dyndep_input,omitempty"`
 }
 
 const (
@@ -143,6 +146,9 @@ func Write(dir string, s Spec) (Info, error) {
 		info.BuildFile = "flags.ninja"
 		info.InSource = true
 		info.LogDir = ".ninja-state"
+		info.DyndepInput = "gen/dyn_extra.in"
+		w.file("gen/dyn.in", "dyn\n")
+		w.file(info.DyndepInput, "extra\n")
 		w.file(info.BuildFile, "cflags = "+flagsMarker+" -Iinclude -Iout/gen\n")
 		w.file("build.ninja", ninjaManifest(libs, info.LogDir))
 		w.file("tests.ninja", ninjaTests)

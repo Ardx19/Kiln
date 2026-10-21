@@ -17,12 +17,13 @@ var fixedSteps = []string{
 	"noop", "touch_source", "touch_header", "edit_header", "add_include",
 	"remove_include", "restat_noop", "edit_codegen_dep", "change_flag",
 	"delete_object", "delete_deps_log", "inject_error", "fix_error",
-	"mass_touch", "change_flag",
+	"mass_touch", "change_flag", "touch_dyndep_input",
 }
 
 var randomSteps = []string{
 	"touch_source", "touch_header", "edit_header", "add_include", "remove_include",
 	"restat_noop", "edit_codegen_dep", "delete_object", "mass_touch",
+	"touch_dyndep_input",
 }
 
 // Script returns the fixed steps followed by extra random ones. The same
@@ -57,6 +58,11 @@ func (t *Tree) Apply(step string, rng *rand.Rand) error {
 		return removeInclude(src(sources[rng.Intn(len(sources))]), rng)
 	case "restat_noop":
 		return touch(src(t.Info.CodegenInput))
+	case "touch_dyndep_input":
+		if t.Info.DyndepInput == "" {
+			return nil // only the hand-written fixture has a dyndep edge
+		}
+		return touch(src(t.Info.DyndepInput))
 	case "edit_codegen_dep":
 		return appendLine(src(t.Info.CodegenDep), fmt.Sprintf("KILN_EDIT_%d 1", rng.Intn(1_000_000)))
 	case "change_flag":

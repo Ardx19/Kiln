@@ -42,6 +42,20 @@ All of these are checked against real Ninja by `TestManifestCases` in `tests/com
 - **`..` that climbs above `/` is kept** (`/a/../../b` stays `/../b`). This is one of the few places Go's `filepath.Clean` would differ.
 - **Pool `depth` is read with C `atoi`**, so `3abc` is 3.
 
+## The depfile parser changed in 1.12 and 1.13 (M1c)
+
+- **1.12:** a depfile with no names at all (just whitespace) became valid. 1.10 and 1.11 reject it with "expected ':' in depfile".
+- **1.13:** `?`, `"`, `'` and `&` became ordinary characters in file names. Before, each one ended the name, so `amp&y.h` was two inputs.
+
+kiln parses a depfile with the rules of the Ninja that owns the tree, chosen from its log version (`depfile.DialectForLog`). `TestDepfileCases` checks 25 tricky depfiles against each Ninja version through `deps = gcc` and `ninja -t deps`. Forcing the newest rules everywhere makes it fail on exactly those cases.
+
+## Dyndep and scanning details kiln mirrors (M1c)
+
+- **A dyndep file's `restat` binding is set in the edge's scope.** For an edge without bindings of its own, that's the file scope, so every other edge in the file sees `restat` too.
+- **A dry run loads dyndep files mid-plan.** A dyndep file that is out of date is loaded once the edge producing it "finishes", using the copy already on disk. That can add work, and Ninja rescans the dependents.
+- **A deleted header is a reason to rebuild, not an error.** A missing input that only a deps log, depfile or dyndep file mentions makes its users dirty. A missing input named in the manifest stops the build ("missing and no known rule to make it").
+- **The manifest comes first, even in a dry run.** If `build.ninja` itself is out of date, `-n` shows only the steps that would regenerate it and stops there.
+
 ## CMake logs custom command outputs twice
 
 CMake declares each custom command output under both its relative path and an absolute implicit output (`${cmake_ninja_workdir}…`), so a single run writes two `.ninja_log` entries.

@@ -43,6 +43,11 @@ type Record struct {
 	EditedAt   int64 `json:"edited_at"`
 	BuildStart int64 `json:"build_start"`
 	BuildEnd   int64 `json:"build_end"`
+	// CheckDry and CheckLeftover are a second runner's dry runs, taken
+	// right after Dry and Leftover on the same files. They must match.
+	CheckDryExit  int      `json:"check_dry_exit,omitempty"`
+	CheckDry      []string `json:"check_dry,omitempty"`
+	CheckLeftover []string `json:"check_leftover,omitempty"`
 	// ClockStepped is set if the wall clock jumped during this step. This
 	// step's results, and every later step's, then depend on timing.
 	ClockStepped bool `json:"clock_stepped,omitempty"`
@@ -65,8 +70,10 @@ func Comparable(a, b []Record) int {
 // milliseconds of a build could otherwise share its mtime.
 const editDelay = 30 * time.Millisecond
 
-// RunScript restores the snapshot and runs every step with r.
-func RunScript(t *Tree, r Runner, steps []string, seed int64) ([]Record, error) {
+// RunScript restores the snapshot and runs every step with r. If check
+// is not nil, it also does a dry run with check before and after each
+// build, on the same tree state as r's dry runs (see Record.CheckDry).
+func RunScript(t *Tree, r Runner, check *Runner, steps []string, seed int64) ([]Record, error) {
 	clock := watchClock()
 	defer clock.Stop()
 	if err := t.Restore(); err != nil {
@@ -85,6 +92,11 @@ func RunScript(t *Tree, r Runner, steps []string, seed int64) ([]Record, error) 
 		var err error
 		if rec.DryExit, rec.Dry, err = t.dryRun(r); err != nil {
 			return nil, err
+		}
+		if check != nil {
+			if rec.CheckDryExit, rec.CheckDry, err = t.dryRun(*check); err != nil {
+				return nil, err
+			}
 		}
 		_, before, err := t.LogEntries()
 		if err != nil {
@@ -110,6 +122,11 @@ func RunScript(t *Tree, r Runner, steps []string, seed int64) ([]Record, error) 
 		rec.LogChanged = changed(before, after)
 		if _, rec.Leftover, err = t.dryRun(r); err != nil {
 			return nil, err
+		}
+		if check != nil {
+			if _, rec.CheckLeftover, err = t.dryRun(*check); err != nil {
+				return nil, err
+			}
 		}
 		if len(rec.Leftover) > 0 {
 			_, out, err := t.exec(r, nil, "-n", "-d", "explain")
