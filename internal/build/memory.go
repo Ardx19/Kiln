@@ -114,8 +114,9 @@ func newMemSched(b *Builder) *memSched {
 		b.status.Warn(fmt.Sprintf("memory scheduling is off: %v", err))
 		return nil
 	}
+	low, critical := watermarks(budget, mem.Limit > 0)
 	s := &memSched{b: b, cfg: c, log: log, budget: budget, minJobs: max(c.MinJobs, 1), mem: mem,
-		low: max(budget/10, 256<<20), critical: max(budget/20, 128<<20),
+		low: low, critical: critical,
 		descr: map[*graph.Edge]memdb.Edge{}, boost: map[*graph.Edge]uint64{}, retried: map[*graph.Edge]bool{},
 		heldSince: map[*graph.Edge]time.Time{}, jobs: map[*graph.Edge]*memJob{}, killed: map[*graph.Edge]bool{},
 		sampler: memprobe.New()}
@@ -124,6 +125,26 @@ func newMemSched(b *Builder) *memSched {
 	s.debugf("budget %s, headroom %s, low %s, critical %s, min jobs %d",
 		size(s.budget), size(mem.Headroom()), size(s.low), size(s.critical), s.minJobs)
 	return s
+}
+
+// watermarks returns the headroom below which nothing new starts (low)
+// and below which the youngest jobs are stopped (critical): a tenth and a
+// twentieth of the budget. Inside a memory limit (a container's cgroup)
+// that is enough, because reaching the limit only kills a job. A whole
+// machine starts swapping and stalling well before its OOM killer acts (a
+// WSL VM can freeze), so there the watermarks are at least 1 GiB and
+// 768 MiB, or a quarter and an eighth of the budget on a machine too small
+// for that. Measured: on an 11.7 GiB laptop, six LLVM compiles that each
+// outgrew their 1.5 GiB first guess took headroom from 940 MiB (no new
+// starts) to under 600 MiB before the old critical watermark (470 MiB) was
+// reached.
+func watermarks(budget uint64, limited bool) (low, critical uint64) {
+	low, critical = max(budget/10, 256<<20), max(budget/20, 128<<20)
+	if !limited {
+		low = max(low, min(1<<30, budget/4))
+		critical = max(critical, min(768<<20, budget/8))
+	}
+	return low, critical
 }
 
 // history describes the edges that have a record, to teach the predictor's

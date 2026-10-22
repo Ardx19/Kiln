@@ -68,6 +68,15 @@ func TestPredict(t *testing.T) {
 	if got := p.Predict(cc("other/d.o")) / mib; got != 220 {
 		t.Errorf("learned during the build: %d MiB", got)
 	}
+	// An edge of another target only shares the kind: it gets the kind's
+	// median, so one big unit doesn't make every compile look big.
+	other := func(rule string) Edge {
+		return Edge{Output: rule + "/x.o", Rule: rule, Command: "c++ -c x.cpp"}
+	}
+	p.Observe(other("CXX_COMPILER__big_"), 2800*mib, 1000, 3, true)
+	if got := p.Predict(other("CXX_COMPILER__new_")) / mib; got != 1100 {
+		t.Errorf("only the kind in common: %d MiB, want the median of 200, 1000 and 2800 MiB plus 10%%", got)
+	}
 }
 
 func TestClassify(t *testing.T) {

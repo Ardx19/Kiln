@@ -73,6 +73,20 @@ func (g *group) p90() uint64 {
 	return g.peaks[len(g.peaks)*9/10]
 }
 
+// median is the group's middle estimate. It is what an edge gets from the
+// group of everything of its kind: those edges may be nothing alike (CMake
+// gives every target its own compile rule), and taking their maximum let
+// one big unity build make every other compile look as big (measured:
+// DuckDB's 12 heaviest units, 1.0-2.8 GiB, were all predicted at 3 GiB
+// after the 2.8 GiB one finished, and ran one at a time).
+func (g *group) median() uint64 {
+	if !g.sorted {
+		slices.Sort(g.peaks)
+		g.sorted = true
+	}
+	return g.peaks[len(g.peaks)/2]
+}
+
 // NewPredictor builds the predictor from the log, using edges to group
 // the history by rule, output directory and kind.
 func NewPredictor(log *Log, edges []Edge) *Predictor {
@@ -106,10 +120,14 @@ func (p *Predictor) Predict(e Edge) uint64 {
 	if r := p.log.Records[e.Output]; r != nil {
 		return uint64(float64(r.Estimate) * Margin)
 	}
-	for _, k := range p.keys(e) {
+	keys := p.keys(e)
+	for _, k := range keys[:2] {
 		if g := p.groups[k]; g != nil {
 			return uint64(float64(g.p90()) * Margin)
 		}
+	}
+	if g := p.groups[keys[2]]; g != nil {
+		return uint64(float64(g.median()) * Margin)
 	}
 	return DefaultPeaks[Classify(e.Rule, e.Command)]
 }
