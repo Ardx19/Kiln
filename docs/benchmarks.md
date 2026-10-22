@@ -17,26 +17,39 @@ WSL2 on a Ryzen 5 5500U (6 cores, 12 threads), 11.7 GiB RAM, ext4. Best of 5-11 
 
 kiln stats files in parallel before the scan, which is why it is faster than Ninja on very large manifests and slower by a fixed ~15 ms on small ones (process start, reading the configuration).
 
-## RDKit's 12 heaviest compiles in a small container (2026-10-22)
+## RDKit's 12 heaviest compiles (2026-10-22)
 
-The 12 slowest translation units of an RDKit `Release_2026_09_1` build (Boost.Python wrappers, ~1.3 GiB each at their peak) compiled from clean in a container with **4 CPUs and 6 GiB of memory (no swap)**, using the host's GCC 11.4. Ninja at its default `-j` is what `cmake --build` or a bare `ninja` would do.
+The 12 slowest translation units of an RDKit `Release_2026_09_1` build (Boost.Python wrappers, ~1.3 GiB each at their peak), compiled from clean, on two machine profiles. Ninja at its default `-j` is what `cmake --build` or a bare `ninja` would do. kiln is run with no flags.
+
+**Small runner: a container with 4 CPUs and 6 GiB (no swap)**, GCC 11.4:
 
 | Runner | Result | Wall time | Peak memory | OOM kills |
 |---|---|---|---|---|
 | ninja, default (`-j6`) | **failed** | 1,108 s | 6.0 GiB | 1 |
 | ninja `-j3`, hand-tuned | ok | 198 s (rerun: 200 s) | 3.8 GiB | 0 |
 | ninja `-j4`, hand-tuned | ok | 175 s | 5.1 GiB | 0 |
-| **kiln, first run** (no memory history, no flags) | ok | 201 s | 5.7 GiB | 0 |
-| **kiln, learned run** (no flags) | ok | **159 s** | 4.6 GiB | 0 |
+| **kiln, first run** (no memory history) | ok | 180 s | 3.7 GiB | 0 |
+| **kiln, learned run** | ok | **156 s** | 4.5 GiB | 0 |
 
-What this shows: with no settings at all, kiln finishes where default Ninja fails, and once it has learned the jobs it beats the best hand-tuned setting I found (`-j4`, which fits with little room to spare; I did not try `-j5`). The first run, which has to guess, is about as fast as `-j3`.
+**Laptop: 12 threads, 11.7 GiB, WSL2** (a memory guard stops any run that leaves under 600 MiB free, because a real OOM can freeze the machine):
+
+| Runner | Result | Wall time | Peak memory | OOM kills |
+|---|---|---|---|---|
+| ninja, default (`-j14`) | **stopped by the guard** (it would have run out of memory) | 28 s | 10.3 GiB | n/a |
+| ninja `-j6`, hand-tuned | ok | 160 s | 8.4 GiB | 0 |
+| **kiln, first run** | ok | 147 s | 7.7 GiB | 0 |
+| **kiln, learned run** | ok | **135 s** | 9.1 GiB | 0 |
+
+What this shows: with no settings at all, kiln finishes where default Ninja fails, and once it has learned the jobs it beats the best hand-tuned setting I tried on both profiles (by 11% in the container and 16% on the laptop). Its first run, which has to guess, is already about as fast as the hand-tuned runs.
+
+How it got there, because the first attempt was worse: my first laptop run had kiln start with a 768 MiB guess for a compile. About a dozen heavy compiles started together, each grew to 1.3 GiB, and kiln's brake (which then stopped one job a second) could not keep up, so the benchmark's guard had to stop the run. That is a real defect, not a benchmark artefact. The fixes are in the code the numbers above come from: the first guess for a compile is now 1.5 GiB (3 GiB for a link), and the brake stops as many young jobs as it takes to win back the low watermark. The container "first run" improved from 201 s to 180 s with the same change.
 
 Limits, stated plainly:
-- **One run per row** on one machine (a Ryzen 5 5500U laptop, 12 threads, 11.7 GiB) and one project, so differences of under ~10% are noise. The hand-tuned `-j3` repeated within 1%.
-- **A subset, not a cold full build.** The full RDKit build, LLVM and DuckDB, and a laptop profile, are still to be run (below).
-- **Ordering.** Runners ran in the order shown, with the hand-tuned `-j3`/`-j4` reruns last, so page-cache warmth does not favour kiln.
-- **Peak memory** is the container's working set sampled twice a second, which includes the file cache the compiles read.
-- ccache was disabled. The raw numbers are in `bench/results/rdkit-heavy.jsonl`; reproduce with `bench/rdkit-heavy.sh 6g 3`.
+- **One run per row**, on one machine (a Ryzen 5 5500U laptop) and one project, so differences under ~10% are noise. The container's hand-tuned `-j3` repeated within 1%. "Best hand-tuned" means the best of the values I tried (`-j3` and `-j4` in the container, `-j6` on the laptop); I did not sweep further.
+- **A subset, not a cold full build.** The full RDKit build, LLVM and DuckDB are still to be run, as is a second project in the container profile.
+- **Ordering.** In the container the hand-tuned reruns ran *after* the kiln runs, so page-cache warmth does not favour kiln. On the laptop the hand-tuned `-j6` ran before kiln's runs.
+- **Peak memory** is the system's (laptop) or the container's working set (container), sampled twice a second, and includes file cache the compiles read. The learned laptop run used more memory than the hand-tuned one (9.1 vs 8.4 GiB) because it keeps more jobs running; the guard never fired.
+- ccache was disabled. Raw numbers: `bench/results/rdkit-heavy.jsonl`. Reproduce with `bench/rdkit-heavy.sh 6g 3` (container) or `tools/bench` directly (laptop; use a guard).
 
 ## Reproducing the memory benchmark
 

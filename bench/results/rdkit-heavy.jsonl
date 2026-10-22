@@ -1,6 +1,10 @@
 {"project":"rdkit-12-heaviest","profile":"container-4cpu-6g","runner":"ninja-default","exit":1,"wall_s":1107.542593645,"peak_mib":6140.1171875,"oom_kills":1}
 {"project":"rdkit-12-heaviest","profile":"container-4cpu-6g","runner":"ninja-tuned","exit":0,"wall_s":197.979652496,"peak_mib":3843.70703125,"oom_kills":0,"jobs":3}
-{"project":"rdkit-12-heaviest","profile":"container-4cpu-6g","runner":"kiln-first","exit":0,"wall_s":201.430644019,"peak_mib":5855.8203125,"oom_kills":0}
-{"project":"rdkit-12-heaviest","profile":"container-4cpu-6g","runner":"kiln-learned","exit":0,"wall_s":158.994923033,"peak_mib":4705.80859375,"oom_kills":0}
 {"project":"rdkit-12-heaviest","profile":"container-4cpu-6g-rerun","runner":"ninja-tuned","exit":0,"wall_s":200.310449206,"peak_mib":3765.44140625,"oom_kills":0,"jobs":3}
 {"project":"rdkit-12-heaviest","profile":"container-4cpu-6g-rerun","runner":"ninja-tuned","exit":0,"wall_s":174.778966805,"peak_mib":5121.91796875,"oom_kills":0,"jobs":4}
+{"project":"rdkit-12-heaviest","profile":"laptop-12threads-11.7g","runner":"ninja-default","exit":-1,"aborted":true,"wall_s":28.166835106,"peak_mib":10552.9609375,"oom_kills":0}
+{"project":"rdkit-12-heaviest","profile":"laptop-12threads-11.7g","runner":"ninja-tuned","exit":0,"wall_s":160.391591795,"peak_mib":8560.90625,"oom_kills":0,"jobs":6}
+{"project":"rdkit-12-heaviest","profile":"laptop-12threads-11.7g","runner":"kiln-first","exit":0,"wall_s":147.413987343,"peak_mib":7888.03515625,"oom_kills":0}
+{"project":"rdkit-12-heaviest","profile":"laptop-12threads-11.7g","runner":"kiln-learned","exit":0,"wall_s":134.825955651,"peak_mib":9341.58203125,"oom_kills":0}
+{"project":"rdkit-12-heaviest","profile":"container-4cpu-6g","runner":"kiln-first","exit":0,"wall_s":180.073060914,"peak_mib":3783.59765625,"oom_kills":0}
+{"project":"rdkit-12-heaviest","profile":"container-4cpu-6g","runner":"kiln-learned","exit":0,"wall_s":155.914643239,"peak_mib":4635.34765625,"oom_kills":0}
