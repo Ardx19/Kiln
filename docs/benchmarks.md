@@ -29,7 +29,7 @@ The 12 slowest translation units of an RDKit `Release_2026_09_1` build (Boost.Py
 | **kiln, first run** (no memory history, no flags) | ok | 201 s | 5.7 GiB | 0 |
 | **kiln, learned run** (no flags) | ok | **159 s** | 4.6 GiB | 0 |
 
-What this shows: with no settings at all, kiln finishes where default Ninja fails, and once it has learned the jobs it beats the best hand-tuned setting I found (`-j4`, which only just fits: `-j5` would not). The first run, which has to guess, is about as fast as `-j3`.
+What this shows: with no settings at all, kiln finishes where default Ninja fails, and once it has learned the jobs it beats the best hand-tuned setting I found (`-j4`, which fits with little room to spare; I did not try `-j5`). The first run, which has to guess, is about as fast as `-j3`.
 
 Limits, stated plainly:
 - **One run per row** on one machine (a Ryzen 5 5500U laptop, 12 threads, 11.7 GiB) and one project, so differences of under ~10% are noise. The hand-tuned `-j3` repeated within 1%.
