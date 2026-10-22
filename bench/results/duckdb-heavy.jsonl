@@ -16,3 +16,5 @@
 {"project":"duckdb-12-heaviest","profile":"container-4cpu-6g","series":"rounds","round":3,"runner":"kiln-learned","exit":0,"wall_s":366.012836023,"peak_mib":4586.3828125,"oom_kills":0,"start":"2026-10-22T13:19:52Z"}
 {"project":"duckdb-12-heaviest","profile":"container-4cpu-6g","series":"rounds","round":3,"runner":"ninja-default","exit":1,"wall_s":126.836224357,"peak_mib":6129.07421875,"oom_kills":2,"start":"2026-10-22T13:26:30Z"}
 {"project":"duckdb-12-heaviest","profile":"container-4cpu-6g","series":"rounds","round":3,"runner":"ninja-tuned","exit":0,"wall_s":343.733916935,"peak_mib":4748.84375,"oom_kills":0,"jobs":3,"start":"2026-10-22T13:28:49Z"}
+{"project":"duckdb-12-heaviest","profile":"container-4cpu-6g","series":"kiln-e0c8f40","round":1,"runner":"kiln-first","exit":0,"wall_s":422.35212742,"peak_mib":5101.71875,"oom_kills":0,"start":"2026-10-22T16:14:04Z"}
+{"project":"duckdb-12-heaviest","profile":"container-4cpu-6g","series":"kiln-e0c8f40","round":1,"runner":"kiln-learned","exit":0,"wall_s":363.397488315,"peak_mib":4829.7265625,"oom_kills":0,"start":"2026-10-22T16:21:45Z"}
