@@ -491,3 +491,65 @@ func TestInstallAbsoluteDestinations(t *testing.T) {
 		t.Errorf("mixed destinations: exit %d\n%s", code, tail(out, 800))
 	}
 }
+
+// TestInstallRootCommit stages an install as an ordinary user into a
+// root-owned prefix and commits it as root, which runs no build commands.
+// It only runs as root (make root-install-test runs it in a container).
+func TestInstallRootCommit(t *testing.T) {
+	if os.Geteuid() != 0 || os.Getenv("KILN_ROOT_TEST") == "" {
+		t.Skip("run as root inside a container: make root-install-test")
+	}
+	e := newInstallEnv(t, "rootcommit")
+	prefix := filepath.Join(e.base, "rootprefix")
+	build := filepath.Join(e.base, "tree")
+	os.MkdirAll(prefix, 0o755) // owned by root, not writable by anyone else
+	os.MkdirAll(filepath.Join(build, ".kiln"), 0o755)
+	writeFile(t, filepath.Join(build, "build.ninja"), "rule t\n  command = touch $out\nbuild tool: t\ndefault tool\n")
+	writeFile(t, filepath.Join(build, ".kiln", "config.toml"), "[install]\nproject = \"rooted\"\nprefix = \""+prefix+"\"\ncommand = 'mkdir -p \"$DESTDIR"+prefix+"/bin\" && cp tool \"$DESTDIR"+prefix+"/bin/tool\"'\n")
+	// The build directory and every directory above it belong to the user.
+	if out, err := exec.Command("chown", "-R", "1000:1000", build).CombinedOutput(); err != nil {
+		t.Fatalf("chown: %v\n%s", err, out)
+	}
+	for d := filepath.Dir(build); d != "/" && d != "."; d = filepath.Dir(d) {
+		os.Chmod(d, 0o755)
+	}
+
+	os.Chmod(filepath.Dir(e.kiln), 0o755) // the test binary's temporary directory is private to root
+	cmd := exec.Command(e.kiln, "install", "-C", build)
+	cmd.Env = append(append([]string(nil), e.env...), "HOME=/tmp")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: 1000, Gid: 1000}}
+	out, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "isn't writable") {
+		t.Fatalf("as the user: %v\n%s", err, tail(string(out), 800))
+	}
+	if _, err := os.Stat(filepath.Join(prefix, "bin", "tool")); err == nil {
+		t.Fatal("the user's install wrote into a root-owned prefix")
+	}
+	var stage string
+	for _, f := range strings.Fields(string(out)) {
+		if strings.Contains(f, "/.kiln/stage/") {
+			stage = f
+		}
+	}
+	if stage == "" {
+		t.Fatalf("no staging directory in the output:\n%s", out)
+	}
+	commit := exec.Command(e.kiln, "install", "--commit", stage)
+	commit.Env = e.env
+	if out, err := commit.CombinedOutput(); err != nil {
+		t.Fatalf("as root: %v\n%s", err, tail(string(out), 800))
+	}
+	fi, err := os.Stat(filepath.Join(prefix, "bin", "tool"))
+	if err != nil {
+		t.Fatalf("root's commit didn't install the tool: %v", err)
+	}
+	if uid := fi.Sys().(*syscall.Stat_t).Uid; uid != 0 {
+		t.Errorf("the installed file is owned by uid %d", uid)
+	}
+	if b, _ := os.ReadFile(filepath.Join(prefix, ".kiln", "owners.json")); !strings.Contains(string(b), "bin/tool") {
+		t.Errorf("ownership wasn't recorded")
+	}
+	if _, err := os.Stat(stage); err == nil {
+		t.Errorf("the staging directory was left behind")
+	}
+}

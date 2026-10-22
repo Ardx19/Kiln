@@ -15,7 +15,7 @@ DOCKER_RUN = docker run --rm --user $$(id -u):$$(id -g) \
 	-e KILN_WORK=/src/.work/ci -e KILN_CORPUS=/src/.work/ci/corpus \
 	-v "$(CURDIR):/src" -w /src $(CI_IMAGE)
 
-.PHONY: help build test lint tools compat compat-short corpus ci-image ci-run mem-container dist
+.PHONY: help build test lint tools compat compat-short corpus ci-image ci-run mem-container root-install-test dist
 
 help:
 	@echo "build          build bin/kiln"
@@ -79,6 +79,13 @@ mem-container: ci-image
 		-e KILN_WORK=/src/.work/ci -e KILN_MEM_CONTAINER=1 \
 		-v "$(CURDIR):/src" -w /src $(CI_IMAGE) \
 		go test -tags compat -count=1 -run TestMemContainer -v ./tests/compat
+
+# Stage an install as a normal user and commit it as root, in a container.
+root-install-test: ci-image
+	docker run --rm --user 0 -e HOME=/tmp -e GOCACHE=/tmp/go-cache -e GOMODCACHE=/tmp/go-mod \
+		-e KILN_WORK=/src/.work/ci-root -e KILN_ROOT_TEST=1 \
+		-v "$(CURDIR):/src" -w /src $(CI_IMAGE) \
+		go test -tags compat -count=1 -run TestInstallRootCommit -v ./tests/compat
 
 ci-run: ci-image
 	$(DOCKER_RUN) make $(CI_TARGET)

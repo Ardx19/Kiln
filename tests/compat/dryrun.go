@@ -27,7 +27,7 @@ func KilnBinary(repo string) (string, error) {
 			return
 		}
 		kilnPath = filepath.Join(dir, "kiln")
-		cmd := exec.Command("go", "build", "-o", kilnPath, "./cmd/kiln")
+		cmd := exec.Command("go", "build", "-buildvcs=false", "-o", kilnPath, "./cmd/kiln")
 		cmd.Dir = repo
 		if out, err := cmd.CombinedOutput(); err != nil {
 			kilnErr = fmt.Errorf("go build ./cmd/kiln: %v\n%s", err, out)

@@ -149,6 +149,9 @@ func Commit(plan *Plan, id string) error {
 	if len(plan.Conflicts) > 0 {
 		return fmt.Errorf("the plan has conflicts:\n%s", plan.ConflictReport())
 	}
+	if err := validate(plan); err != nil {
+		return err
+	}
 	unlock, err := lockPrefix(plan.Prefix)
 	if err != nil {
 		return err
@@ -234,11 +237,23 @@ func apply(plan *Plan, backup string, op Op) error {
 }
 
 // place moves a staged file or symlink to dest: a rename when they share
-// a file system, else a copy next to dest and a rename.
+// a file system, else a copy next to dest and a rename. When run as root,
+// the installed file belongs to root, not to whoever staged it: otherwise
+// an unprivileged user could change files in a root-owned prefix.
 func place(src, dest string, e Entry) error {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o777); err != nil {
 		return err
 	}
+	if err := placeFile(src, dest, e); err != nil {
+		return err
+	}
+	if os.Geteuid() == 0 {
+		return os.Lchown(dest, 0, 0)
+	}
+	return nil
+}
+
+func placeFile(src, dest string, e Entry) error {
 	err := os.Rename(src, dest)
 	if err == nil {
 		return nil
@@ -385,6 +400,50 @@ func recoverLocked(prefix string) error {
 			finish(j.Plan, dir)
 		} else if err := rollback(j.Plan, dir); err != nil {
 			return fmt.Errorf("rolling back %s: %v", e.Name(), err)
+		}
+	}
+	return nil
+}
+
+// validate checks a plan before anything is changed. A staged plan comes
+// from a directory its owner controls, and the commit may run as root, so
+// nothing in it is trusted: every path must stay inside the prefix, and
+// every staged file must still be what was planned.
+func validate(plan *Plan) error {
+	if !filepath.IsAbs(plan.Prefix) {
+		return fmt.Errorf("the plan's prefix %q isn't absolute", plan.Prefix)
+	}
+	realPrefix, err := filepath.EvalSymlinks(plan.Prefix)
+	if err != nil {
+		return err
+	}
+	for _, op := range plan.Ops {
+		p := op.Path
+		if p == "" || filepath.IsAbs(p) || filepath.Clean(p) != p || p == ".." || strings.HasPrefix(p, "../") {
+			return fmt.Errorf("the plan has an unsafe path %q", p)
+		}
+		if p == Dir || strings.HasPrefix(p, Dir+"/") {
+			return fmt.Errorf("the plan would change kiln's own directory (%q)", p)
+		}
+		if os.Geteuid() == 0 {
+			// The directories above the file must not lead out of the
+			// prefix, even through symlinks.
+			dir := filepath.Dir(filepath.Join(plan.Prefix, p))
+			for dir != plan.Prefix && dir != "/" {
+				if real, err := filepath.EvalSymlinks(dir); err == nil {
+					if real != realPrefix && !strings.HasPrefix(real, realPrefix+"/") {
+						return fmt.Errorf("%q would be written outside the prefix, through a symlink", p)
+					}
+					break
+				}
+				dir = filepath.Dir(dir)
+			}
+		}
+		if op.Kind == "install" {
+			got, ok, err := Stat(filepath.Join(plan.Stage, p))
+			if err != nil || !ok || !got.Same(op.Entry) {
+				return fmt.Errorf("the staged file %q is missing or changed since it was staged; stage the install again", p)
+			}
 		}
 	}
 	return nil

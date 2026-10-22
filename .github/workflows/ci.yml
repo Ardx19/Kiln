@@ -29,6 +29,12 @@ jobs:
       - uses: actions/checkout@v4
       - run: make mem-container
 
+  root-install:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: make root-install-test
+
   corpus-small:
     runs-on: ubuntu-24.04
     steps:

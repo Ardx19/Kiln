@@ -34,7 +34,7 @@ func newMemEnv(t *testing.T, name string) *memEnv {
 		t.Fatal(err)
 	}
 	memhog := filepath.Join(WorkDir(repo), "bin", "memhog")
-	if out, err := exec.Command("go", "build", "-o", memhog, "github.com/Ardx19/kiln/tools/memhog").CombinedOutput(); err != nil {
+	if out, err := exec.Command("go", "build", "-buildvcs=false", "-o", memhog, "github.com/Ardx19/kiln/tools/memhog").CombinedOutput(); err != nil {
 		t.Fatalf("building memhog: %v\n%s", err, out)
 	}
 	dir := filepath.Join(WorkDir(repo), "mem", name)

@@ -366,3 +366,63 @@ func TestCrashAtEveryPoint(t *testing.T) {
 		}
 	}
 }
+
+// TestCommitDoesNotTrustThePlan: a plan with paths that leave the prefix,
+// or a staged file changed after planning, is refused before anything
+// changes.
+func TestCommitDoesNotTrustThePlan(t *testing.T) {
+	newPlan := func(t *testing.T) (*Plan, string, string) {
+		prefix, outside := t.TempDir(), t.TempDir()
+		stage := t.TempDir()
+		os.WriteFile(filepath.Join(stage, "f"), []byte("x"), 0o644)
+		entries, _ := Scan(stage)
+		plan, err := MakePlan(opts2(prefix), entries, stage)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return plan, prefix, outside
+	}
+	for _, bad := range []string{"../escape", "/etc/passwd", "a/../../escape", ".kiln/owners.json", ""} {
+		plan, prefix, _ := newPlan(t)
+		plan.Ops[0].Path = bad
+		if err := Commit(plan, "x"); err == nil || !strings.Contains(err.Error(), "unsafe path") && !strings.Contains(err.Error(), "kiln's own") {
+			t.Errorf("path %q: %v", bad, err)
+		}
+		if _, err := os.Stat(filepath.Join(prefix, ".kiln", "txn")); err == nil {
+			t.Errorf("path %q: the refused plan left a transaction", bad)
+		}
+	}
+	plan, prefix, _ := newPlan(t)
+	os.WriteFile(filepath.Join(plan.Stage, "f"), []byte("swapped after planning"), 0o644)
+	if err := Commit(plan, "x"); err == nil || !strings.Contains(err.Error(), "changed since it was staged") {
+		t.Errorf("a changed staged file: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(prefix, "f")); err == nil {
+		t.Error("the swapped file was installed")
+	}
+}
+
+// TestRootRefusesSymlinkEscape: as root, a path that goes through a symlink
+// out of the prefix is refused. It only runs as root (inside a container).
+func TestRootRefusesSymlinkEscape(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("needs root")
+	}
+	prefix, outside, stage := t.TempDir(), t.TempDir(), t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(prefix, "evil")); err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(filepath.Join(stage, "evil"), 0o755)
+	os.WriteFile(filepath.Join(stage, "evil", "x"), []byte("x"), 0o644)
+	entries, _ := Scan(stage)
+	plan, err := MakePlan(opts2(prefix), entries, stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Commit(plan, "x"); err == nil || !strings.Contains(err.Error(), "outside the prefix") {
+		t.Errorf("Commit = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "x")); err == nil {
+		t.Error("root wrote outside the prefix")
+	}
+}
