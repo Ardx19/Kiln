@@ -1,6 +1,6 @@
 # Benchmarks
 
-This page says how to reproduce kiln's benchmark tables and records what has been measured. **The full headline runs (cold builds of RDKit, LLVM and DuckDB, on a laptop and in a small container) have not been run**: they take hours each and want an otherwise idle machine. A first result for RDKit's heaviest compiles in a small container is below, and everything needed to run the rest is here.
+This page says how to reproduce kiln's benchmark tables and records what has been measured. **The full headline runs (cold builds of RDKit, LLVM and DuckDB, on a laptop and in a small container) have not been run**: they take hours each and want an otherwise idle machine. What has been run is the heaviest compiles of each project, three times per setting: RDKit on both profiles, LLVM on the laptop and DuckDB in the container. In short: Ninja's default failed or was stopped by the guard every time on all four; kiln with no flags never ran out of memory, and its speed against the best hand-tuned `-j` ranges from 5-6% faster (RDKit, within the noise) to 8% slower (DuckDB); on LLVM its first run was stopped by the benchmark's own guard, which is an open question.
 
 ## Measured so far
 
@@ -57,7 +57,7 @@ How it got there, because the first attempt was worse: my first laptop run had k
 
 Limits, stated plainly:
 - **Three runs per row**, on one machine (a Ryzen 5 5500U laptop) and one project. Default Ninja's rows are single runs, made earlier, since repeating a known failure costs 18 minutes in the container. With three runs, a difference of a few percent is within the noise; the ranges show how much. "Best hand-tuned" is the best of the values swept: `-j5` to `-j7` on the laptop, `-j3` to `-j5` in the container.
-- **A subset, not a cold full build.** The full RDKit build is still to be run, as are LLVM and DuckDB.
+- **Subsets, not cold full builds.** Each project's heaviest compiles, chosen from its build log; full builds of RDKit, LLVM and DuckDB are still to be run, as are LLVM in the container and DuckDB on the laptop.
 - **Ordering and page cache.** The page cache can't be dropped without root, so runs after the first in a chunk find the sources and headers cached. The rotation gives every runner each position once over three rounds.
 - **Peak memory** is the system's (laptop) or the container's working set (container), sampled twice a second, and includes file cache the compiles read. The learned laptop runs used more memory than the hand-tuned ones (9.2 against 8.3 GiB) because they keep more jobs running; the guard never fired.
 - ccache was disabled. Raw numbers, one JSON line per run with its start time: `bench/results/rdkit-heavy.jsonl`. Reproduce with `bench/heavy.sh rdkit laptop` or `bench/heavy.sh rdkit container` (below).
@@ -82,6 +82,25 @@ Command: `bench/heavy.sh llvm laptop -tuned 3,4,5`, with `-only ninja-default,ni
 **kiln did not finish here, and why is an open question, not a result either way.** With no history, kiln guesses 1.5 GiB for a compile, so its budget (90% of the 10.5 GiB free at the start, about 9.4 GiB) lets it start six of these ~2.2 GiB units at once. Its brake has two watermarks: below a tenth of the budget free (about 940 MiB here) it starts nothing new, and only below a twentieth (about 470 MiB) does it stop the youngest jobs. The guard stops a run at 600 MiB, between the two, so as the six compiles grew past their guesses, the guard ended the run before kiln's brake was due to act. Whether kiln would then have recovered without an OOM kill was not measured: on this machine a real OOM can freeze WSL, which is why the guard exists. The run left no memory history (no compile had finished), so a "learned" run would only have repeated the first run, and the learned rows were not run. Settling it needs either a guard below kiln's critical watermark, or a kiln that keeps more headroom on its own, which is a change to the scheduler and would mean rerunning the RDKit kiln rows.
 
 One run was redone. The bench tool cleaned a target by `ninja -t clean` when its output file was missing, which is the case after a killed run, and that also removes everything built to make it. After the guard stopped round 1's default Ninja, the next run (`-j3`) had to rebuild LLVMSupport and the TableGen tools and hit the time cap. The tool is fixed (`5826096`), and that row was dropped and rerun. The RDKit targets are built from sources only, so their runs were not affected.
+
+## DuckDB's 12 heaviest compiles (2026-10-22)
+
+The 12 slowest unity-build translation units of a DuckDB Release build (`ub_*.cpp`, from the tree's build log), compiled from clean in the **small-runner container (4 CPUs, 6 GiB, no swap)**, GCC 11.4, 3 runs per row. kiln's own history puts these at 1.0-2.8 GiB each (`test_common` the largest).
+
+| Runner | Result | Wall time, median (range) | Peak memory, median | OOM kills |
+|---|---|---|---|---|
+| ninja, default (`-j6`) | **failed**, 3 of 3 | failed after 125-127 s | 6.0 GiB | 2 per run |
+| ninja `-j3`, hand-tuned (best) | 3 of 3 ok | **338 s** (335–344) | 4.6 GiB | 0 |
+| ninja `-j4`, hand-tuned | **failed**, 3 of 3 | failed after 92-102 s | 6.0 GiB | 1 per run |
+| ninja `-j5`, hand-tuned | **failed**, 3 of 3 | failed after 107-124 s | 6.0 GiB | 1 per run |
+| **kiln, first run** (no memory history) | 3 of 3 ok | 522 s (455–563) | 5.1 GiB | 0 |
+| **kiln, learned run** | 3 of 3 ok | 366 s (341–367) | 4.5 GiB | 0 |
+
+Command: `bench/heavy.sh duckdb container -tuned 3,4,5 -cap 10m`, 17:36–19:04 IST (the rows' start times are UTC). The first two runs had a 6-minute cap; it was raised to 10 minutes once `-j3` was seen to take 338 s. No run reached either cap.
+
+What this shows: here only one of the four Ninja settings tried finishes at all, and kiln with no flags never ran out of memory. But it was slower than that one setting: 8% once it had learned the jobs (366 against 338 s; within a round it lost by 3, 32 and 22 s), and 54% on its first run (522 s). The first run is slow because its 1.5 GiB guess is too small for these units: as compiles grow past their guesses, kiln counts each running job at its actual size, so after two ~2 GiB compiles a third doesn't fit its ~5.2 GiB budget, and it ran about 1.5 compiles at a time on 4 CPUs. The claim this supports is safety, not speed: kiln is the only no-flags runner that finishes, and it is within 10% of the best hand-tuned `-j` once it has learned.
+
+The image needed ccache: DuckDB's build runs every compile through `/usr/bin/ccache` (with `CCACHE_DISABLE=1` it calls the compiler straight through). Without it the first attempt failed at once; those runs were not results and were dropped, and the bench tool now refuses to record a run that fails within 5 s.
 
 ## Reproducing the memory benchmark
 
