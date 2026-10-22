@@ -302,6 +302,11 @@ func nextChunk(pend []Run, est func(Run) time.Duration, budget time.Duration) []
 	return pend
 }
 
+// setupFailure is how soon a failing run counts as a broken setup (a
+// missing compiler, a tool that won't start) rather than a measurement.
+// Builds that fail for memory take far longer.
+const setupFailure = 5 * time.Second
+
 // runChunk runs the series' next chunk, appending each row to c.out as
 // soon as its run ends.
 func runChunk(c config, rows []Result, stdout, stderr io.Writer) error {
@@ -321,6 +326,10 @@ func runChunk(c config, rows []Result, stdout, stderr io.Writer) error {
 		}
 		if res.interrupted {
 			return fmt.Errorf("interrupted: round %d %s was stopped and not recorded", r.Round, label(r.Runner, r.Jobs))
+		}
+		if !res.OK() && !res.Aborted && !res.Capped && res.WallS < setupFailure.Seconds() {
+			return fmt.Errorf("round %d %s failed at once (exit %d after %.1f s), which is a broken setup, not a result; it was not recorded: run it by hand to see why",
+				r.Round, label(r.Runner, r.Jobs), res.Exit, res.WallS)
 		}
 		results = append(results, res)
 		note := ""

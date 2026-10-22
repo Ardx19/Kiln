@@ -361,3 +361,23 @@ build all: phony out.o
 		t.Error("cleaning the phony target all left gen.h")
 	}
 }
+
+// TestSetupFailureIsNotRecorded: a build that fails at once (here every
+// command is missing, as when an image lacks the compiler launcher) is a
+// broken setup; recording it would make resume skip the run for good.
+func TestSetupFailureIsNotRecorded(t *testing.T) {
+	tmp := t.TempDir()
+	ninja := filepath.Join(tmp, "ninja")
+	os.WriteFile(ninja, []byte("#!/bin/sh\n[ \"$3\" = -t ] && exit 0\nexit 127\n"), 0o755)
+	c := config{
+		dir: tmp, ninja: ninja, kiln: ninja, series: Series{"p", "test", "rounds"},
+		rounds: 1, out: filepath.Join(tmp, "results.jsonl"), targets: []string{"all"},
+	}
+	err := runChunk(c, nil, io.Discard, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "broken setup") {
+		t.Errorf("runChunk = %v, want a broken-setup error", err)
+	}
+	if rows, _ := readRows(c.out); len(rows) != 0 {
+		t.Errorf("recorded %d rows of a broken setup", len(rows))
+	}
+}
