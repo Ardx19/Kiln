@@ -62,6 +62,27 @@ Limits, stated plainly:
 - **Peak memory** is the system's (laptop) or the container's working set (container), sampled twice a second, and includes file cache the compiles read. The learned laptop runs used more memory than the hand-tuned ones (9.2 against 8.3 GiB) because they keep more jobs running; the guard never fired.
 - ccache was disabled. Raw numbers, one JSON line per run with its start time: `bench/results/rdkit-heavy.jsonl`. Reproduce with `bench/heavy.sh rdkit laptop` or `bench/heavy.sh rdkit container` (below).
 
+## LLVM's heaviest compiles (2026-10-22)
+
+Seven of the slowest translation units of an LLVM build with Clang (Release, GCC 11.4): `SemaExpr`, `X86ISelLowering`, `CodeGenModule`, `SemaDecl`, `SemaTemplate` and `SemaOpenMP`, plus `ASTMatchers/Dynamic/Registry.cpp`, the slowest unit in the tree's build log. Compiled alone (`ninja -j1`, one at a time), each takes 34-70 s and needs about 1.8-2.5 GiB (`bench/results/llvm-sizing.jsonl`; that file's peaks include the ~1.1 GiB the system was using before), so all seven at once want about 15 GiB. The link-heavy comparison first planned for LLVM does not fit this tree: its links take 25 s or less.
+
+**Laptop: 12 threads, 11.7 GiB, WSL2**, the same 600 MiB guard, 3 runs per row:
+
+| Runner | Result | Wall time, median (range) | Peak memory, median | OOM kills |
+|---|---|---|---|---|
+| ninja, default (`-j14`) | **stopped by the guard**, 3 of 3 | stopped after 50-66 s | 11.1 GiB | n/a |
+| ninja `-j3`, hand-tuned | 3 of 3 ok | 164 s (160–173) | 6.6 GiB | 0 |
+| ninja `-j4`, hand-tuned (best) | 3 of 3 ok | **142 s** (142–153) | 8.3 GiB | 0 |
+| ninja `-j5`, hand-tuned | 3 of 3 ok | 154 s (146–163) | 10.0 GiB | 0 |
+| kiln, first run | **stopped by the guard**, 1 of 1 | stopped after 77 s | 11.1 GiB | n/a |
+| kiln, learned run | not run (see below) | | | |
+
+Command: `bench/heavy.sh llvm laptop -tuned 3,4,5`, with `-only ninja-default,ninja-tuned` for rounds 2 and 3; 16:50–17:32 IST.
+
+**kiln did not finish here, and why is an open question, not a result either way.** With no history, kiln guesses 1.5 GiB for a compile, so its budget (90% of the 10.5 GiB free at the start, about 9.4 GiB) lets it start six of these ~2.2 GiB units at once. Its brake has two watermarks: below a tenth of the budget free (about 940 MiB here) it starts nothing new, and only below a twentieth (about 470 MiB) does it stop the youngest jobs. The guard stops a run at 600 MiB, between the two, so as the six compiles grew past their guesses, the guard ended the run before kiln's brake was due to act. Whether kiln would then have recovered without an OOM kill was not measured: on this machine a real OOM can freeze WSL, which is why the guard exists. The run left no memory history (no compile had finished), so a "learned" run would only have repeated the first run, and the learned rows were not run. Settling it needs either a guard below kiln's critical watermark, or a kiln that keeps more headroom on its own, which is a change to the scheduler and would mean rerunning the RDKit kiln rows.
+
+One run was redone. The bench tool cleaned a target by `ninja -t clean` when its output file was missing, which is the case after a killed run, and that also removes everything built to make it. After the guard stopped round 1's default Ninja, the next run (`-j3`) had to rebuild LLVMSupport and the TableGen tools and hit the time cap. The tool is fixed (`5826096`), and that row was dropped and rerun. The RDKit targets are built from sources only, so their runs were not affected.
+
 ## Reproducing the memory benchmark
 
 `tools/bench` runs one set of targets from clean with these runners: `ninja-default` (Ninja at its default `-j`), `ninja-tuned` (`-jN` for each hand-tuned value in `-tuned`), `kiln-first` (an empty memory history) and `kiln-learned` (the history its `kiln-first` left). It records wall time, the system's peak memory use, and OOM kills. A watchdog kills a run that leaves less than `-guard` MiB, so an unthrottled Ninja can't take the machine down (the run is reported as aborted), and `-cap` kills a run that takes too long. Both kill the run's whole process tree.

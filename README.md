@@ -83,7 +83,8 @@ Measured so far (WSL2, 12 threads, 11.7 GiB RAM):
 | No-op build of protobuf (1,945 edges) | 44.5 ms | 57.1 ms |
 | Eight 400 MiB compile jobs in a 2 GiB container | `-j8` fails (a compile is killed) | finishes with no flags |
 | RDKit's 12 heaviest compiles, 4 CPUs and 6 GiB container (medians of 3 runs) | default `-j` fails (OOM kill, 1,108 s); best hand-tuned `-j4` takes 170 s | 181 s on the first run, **161 s** once it has learned, no flags |
-| The same compiles on a 12-thread, 11.7 GiB laptop (medians of 3 runs) | default `-j14` runs out of memory; best hand-tuned `-j7` takes 143 s | 144 s on the first run, **135 s** once it has learned, no flags |
+| The same compiles on a 12-thread, 11.7 GiB laptop (medians of 3 runs) | default `-j14` would run out of memory (a guard stops it); best hand-tuned `-j7` takes 143 s | 144 s on the first run, **135 s** once it has learned, no flags |
+| LLVM's 7 heaviest compiles, same laptop (medians of 3 runs) | default `-j14` would run out of memory (a guard stops it); best hand-tuned `-j4` takes 142 s | **not yet**: its first run was stopped by the benchmark's 600 MiB guard, which sits above kiln's own 470 MiB brake point (see the docs) |
 | Second checkout of a project, compiler cache hits | 0 of 23 with plain ccache | 23 of 23 with kiln's settings |
 
 The RDKit rows are medians of three runs (kiln's 5-6% lead once it has learned is within their noise: it matches the best hand-tuned `-j`), all on one machine; [docs/benchmarks.md](docs/benchmarks.md) has the details, the limits and how to reproduce them. The full tables (cold builds of RDKit, LLVM and DuckDB on a laptop and in a small container) are still to be run; see the plan in [docs/plans/](docs/plans/).
