@@ -8,3 +8,6 @@
 {"project":"rdkit-12-heaviest","profile":"laptop-12threads-11.7g","runner":"kiln-learned","exit":0,"wall_s":134.825955651,"peak_mib":9341.58203125,"oom_kills":0}
 {"project":"rdkit-12-heaviest","profile":"container-4cpu-6g","runner":"kiln-first","exit":0,"wall_s":180.073060914,"peak_mib":3783.59765625,"oom_kills":0}
 {"project":"rdkit-12-heaviest","profile":"container-4cpu-6g","runner":"kiln-learned","exit":0,"wall_s":155.914643239,"peak_mib":4635.34765625,"oom_kills":0}
+{"project":"rdkit-12-heaviest","profile":"laptop-12threads-11.7g","series":"rounds","round":1,"runner":"ninja-tuned","exit":0,"wall_s":157.390326578,"peak_mib":7279.78125,"oom_kills":0,"jobs":5,"start":"2026-10-22T15:05:05+05:30"}
+{"project":"rdkit-12-heaviest","profile":"laptop-12threads-11.7g","series":"rounds","round":1,"runner":"ninja-tuned","exit":0,"wall_s":149.904608523,"peak_mib":8588.23828125,"oom_kills":0,"jobs":6,"start":"2026-10-22T15:07:57+05:30"}
+{"project":"rdkit-12-heaviest","profile":"laptop-12threads-11.7g","series":"rounds","round":1,"runner":"ninja-tuned","exit":0,"wall_s":142.693367022,"peak_mib":8467.62890625,"oom_kills":0,"jobs":7,"start":"2026-10-22T15:10:42+05:30"}
