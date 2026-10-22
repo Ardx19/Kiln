@@ -29,3 +29,7 @@
 {"project":"rdkit-12-heaviest","profile":"container-4cpu-6g","series":"rounds","round":1,"runner":"kiln-first","exit":0,"wall_s":172.949231509,"peak_mib":4672.1953125,"oom_kills":0,"start":"2026-10-22T10:31:41Z"}
 {"project":"rdkit-12-heaviest","profile":"container-4cpu-6g","series":"rounds","round":1,"runner":"kiln-learned","exit":0,"wall_s":179.416591099,"peak_mib":4624.0390625,"oom_kills":0,"start":"2026-10-22T10:34:55Z"}
 {"project":"rdkit-12-heaviest","profile":"container-4cpu-6g","series":"rounds","round":2,"runner":"ninja-tuned","exit":0,"wall_s":169.996464686,"peak_mib":5102.53515625,"oom_kills":0,"jobs":4,"start":"2026-10-22T10:38:14Z"}
+{"project":"rdkit-12-heaviest","profile":"container-4cpu-6g","series":"rounds","round":2,"runner":"ninja-tuned","exit":0,"wall_s":184.522271541,"peak_mib":5879.546875,"oom_kills":0,"jobs":5,"start":"2026-10-22T10:42:02Z"}
+{"project":"rdkit-12-heaviest","profile":"container-4cpu-6g","series":"rounds","round":2,"runner":"kiln-first","exit":0,"wall_s":180.946462291,"peak_mib":4683.765625,"oom_kills":0,"start":"2026-10-22T10:45:23Z"}
+{"project":"rdkit-12-heaviest","profile":"container-4cpu-6g","series":"rounds","round":2,"runner":"kiln-learned","exit":0,"wall_s":157.115875312,"peak_mib":4640.2890625,"oom_kills":0,"start":"2026-10-22T10:48:42Z"}
+{"project":"rdkit-12-heaviest","profile":"container-4cpu-6g","series":"rounds","round":2,"runner":"ninja-tuned","exit":0,"wall_s":173.987250322,"peak_mib":3755.17578125,"oom_kills":0,"jobs":3,"start":"2026-10-22T10:51:36Z"}
