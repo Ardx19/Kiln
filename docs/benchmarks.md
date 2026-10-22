@@ -21,7 +21,24 @@ kiln stats files in parallel before the scan, which is why it is faster than Nin
 
 The 12 slowest translation units of an RDKit `Release_2026_09_1` build (Boost.Python wrappers, ~1.3 GiB each at their peak), compiled from clean, on two machine profiles. Ninja at its default `-j` is what `cmake --build` or a bare `ninja` would do. kiln is run with no flags.
 
-**Small runner: a container with 4 CPUs and 6 GiB (no swap)**, GCC 11.4:
+**Laptop: 12 threads, 11.7 GiB, WSL2.** 3 runs per row, in rounds with the order rotated each round; the table gives the median and, in brackets, the range. A memory guard stops any run that leaves under 600 MiB free, because a real OOM can freeze the machine.
+
+| Runner | Result | Wall time, median (range) | Peak memory, median | OOM kills |
+|---|---|---|---|---|
+| ninja, default (`-j14`) | **stopped by the guard** (it would have run out of memory); one run | 28 s | 10.3 GiB | n/a |
+| ninja `-j5`, hand-tuned | 3 of 3 ok | 157 s (152–177) | 7.1 GiB | 0 |
+| ninja `-j6`, hand-tuned | 3 of 3 ok | 148 s (144–150) | 8.4 GiB | 0 |
+| ninja `-j7`, hand-tuned (best) | 3 of 3 ok | 143 s (136–198) | 8.3 GiB | 0 |
+| **kiln, first run** (no memory history) | 3 of 3 ok | 144 s (139–206) | 8.0 GiB | 0 |
+| **kiln, learned run** | 3 of 3 ok | **135 s** (132–208) | 9.2 GiB | 0 |
+
+Command: `bench/heavy.sh rdkit laptop -tuned 5,6,7 -only ninja-tuned,kiln-first,kiln-learned`, run in four chunks between 15:05 and 15:50 IST.
+
+What this shows on the laptop: kiln with no flags matches the best hand-tuned Ninja on its first run and is about 6% faster once it has learned the jobs (135 s against 143 s). That is a smaller margin than the 16% a single earlier run suggested (it compared against `-j6` at 160 s; sweeping `-j5` to `-j7` found a better Ninja). Within a round, which is the fairest comparison, the learned run beat the round's best Ninja by 8% in round 1 (132 s against 143 s) and tied it in round 3 (135 s against 136 s).
+
+**The slow spell in round 2.** Four runs in a row, from 15:21 to 15:36 (round 2's `-j7`, kiln's first and learned runs, then `-j5`), were 12-58% slower than the same runners in rounds 1 and 3: 198, 206, 208 and 177 s. Nothing else was running in WSL (the load was the compiles; the Claude Code app took well under one core), so the cause is probably on the Windows side: another program, or heat throttling the CPU, which WSL can't see. It is why those ranges reach so high, and why medians rather than means are reported.
+
+**Small runner: a container with 4 CPUs and 6 GiB (no swap)**, GCC 11.4. Single runs so far; the 3-round series is next.
 
 | Runner | Result | Wall time | Peak memory | OOM kills |
 |---|---|---|---|---|
@@ -31,25 +48,14 @@ The 12 slowest translation units of an RDKit `Release_2026_09_1` build (Boost.Py
 | **kiln, first run** (no memory history) | ok | 180 s | 3.7 GiB | 0 |
 | **kiln, learned run** | ok | **156 s** | 4.5 GiB | 0 |
 
-**Laptop: 12 threads, 11.7 GiB, WSL2** (a memory guard stops any run that leaves under 600 MiB free, because a real OOM can freeze the machine):
-
-| Runner | Result | Wall time | Peak memory | OOM kills |
-|---|---|---|---|---|
-| ninja, default (`-j14`) | **stopped by the guard** (it would have run out of memory) | 28 s | 10.3 GiB | n/a |
-| ninja `-j6`, hand-tuned | ok | 160 s | 8.4 GiB | 0 |
-| **kiln, first run** | ok | 147 s | 7.7 GiB | 0 |
-| **kiln, learned run** | ok | **135 s** | 9.1 GiB | 0 |
-
-What this shows: with no settings at all, kiln finishes where default Ninja fails, and once it has learned the jobs it beats the best hand-tuned setting I tried on both profiles (by 11% in the container and 16% on the laptop). Its first run, which has to guess, is already about as fast as the hand-tuned runs.
-
 How it got there, because the first attempt was worse: my first laptop run had kiln start with a 768 MiB guess for a compile. About a dozen heavy compiles started together, each grew to 1.3 GiB, and kiln's brake (which then stopped one job a second) could not keep up, so the benchmark's guard had to stop the run. That is a real defect, not a benchmark artefact. The fixes are in the code the numbers above come from: the first guess for a compile is now 1.5 GiB (3 GiB for a link), and the brake stops as many young jobs as it takes to win back the low watermark. The container "first run" improved from 201 s to 180 s with the same change.
 
 Limits, stated plainly:
-- **One run per row**, on one machine (a Ryzen 5 5500U laptop) and one project, so differences under ~10% are noise. The container's hand-tuned `-j3` repeated within 1%. "Best hand-tuned" means the best of the values I tried (`-j3` and `-j4` in the container, `-j6` on the laptop); I did not sweep further.
-- **A subset, not a cold full build.** The full RDKit build, LLVM and DuckDB are still to be run, as is a second project in the container profile.
-- **Ordering.** In the container the hand-tuned reruns ran *after* the kiln runs, so page-cache warmth does not favour kiln. On the laptop the hand-tuned `-j6` ran before kiln's runs.
-- **Peak memory** is the system's (laptop) or the container's working set (container), sampled twice a second, and includes file cache the compiles read. The learned laptop run used more memory than the hand-tuned one (9.1 vs 8.4 GiB) because it keeps more jobs running; the guard never fired.
-- ccache was disabled. Raw numbers: `bench/results/rdkit-heavy.jsonl`. Reproduce with `bench/heavy.sh rdkit container` or `bench/heavy.sh rdkit laptop` (below).
+- **Three runs per row on the laptop** (one per row in the container, until its series is done), on one machine (a Ryzen 5 5500U laptop) and one project. With three runs, a difference of a few percent is within the noise; the ranges show how much. "Best hand-tuned" is the best of the values swept: `-j5` to `-j7` on the laptop, `-j3` and `-j4` in the container.
+- **A subset, not a cold full build.** The full RDKit build is still to be run, as are LLVM and DuckDB.
+- **Ordering and page cache.** The page cache can't be dropped without root, so runs after the first in a chunk find the sources and headers cached. The rotation gives every runner each position once over three rounds.
+- **Peak memory** is the system's (laptop) or the container's working set (container), sampled twice a second, and includes file cache the compiles read. The learned laptop runs used more memory than the hand-tuned ones (9.2 against 8.3 GiB) because they keep more jobs running; the guard never fired.
+- ccache was disabled. Raw numbers, one JSON line per run with its start time: `bench/results/rdkit-heavy.jsonl`. Reproduce with `bench/heavy.sh rdkit laptop` or `bench/heavy.sh rdkit container` (below).
 
 ## Reproducing the memory benchmark
 
