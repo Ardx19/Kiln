@@ -194,13 +194,42 @@ func doInstall(p program, f installFlags, stdout, stderr io.Writer) error {
 		}
 	}
 
+	// Projects with absolute install destinations (RDKit's in-tree install
+	// puts files in the source directory) ignore the prefix: with DESTDIR
+	// their files land under stage/<that directory>. Find where they went.
+	staged, err := listFiles(stageDir)
+	if err != nil {
+		return err
+	}
+	under := strings.TrimPrefix(prefix, "/") + "/"
+	var outside []string
+	for _, rel := range staged {
+		if !strings.HasPrefix(rel, under) {
+			outside = append(outside, rel)
+		}
+	}
+	switch {
+	case len(staged) == 0:
+		return fmt.Errorf("the install staged no files")
+	case len(outside) == len(staged):
+		root := commonDir(staged)
+		if root == "" || root == "." {
+			return fmt.Errorf("the install staged files, but none under %s and no common directory for them", prefix)
+		}
+		fmt.Fprintf(stderr, "%s: note: the install put its files under /%s, not under %s; treating /%s as the prefix\n", p.name, root, prefix, root)
+		prefix = "/" + root
+		if err := os.MkdirAll(prefix, 0o777); err != nil {
+			return err
+		}
+		writable = unix.Access(prefix, unix.W_OK) == nil
+	case len(outside) > 0:
+		fmt.Fprintf(stderr, "%s: warning: %d staged file(s) install outside %s (absolute destinations) and are not tracked, for example /%s\n",
+			p.name, len(outside), prefix, outside[0])
+	}
 	stageRoot := filepath.Join(stageDir, prefix)
 	files, err := install.Scan(stageRoot)
 	if err != nil {
 		return fmt.Errorf("the install staged nothing under %s: %v", prefix, err)
-	}
-	if len(files) == 0 {
-		return fmt.Errorf("the install staged no files for %s", prefix)
 	}
 	tracked := gitTracked(prefix)
 	plan, err := install.MakePlan(install.Options{
@@ -237,6 +266,37 @@ func doInstall(p program, f installFlags, stdout, stderr io.Writer) error {
 	fmt.Fprint(stdout, plan.Describe())
 	fmt.Fprintf(stdout, "installed %d files into %s\n", len(plan.OwnersNew.Sets[len(plan.OwnersNew.Sets)-1].Files), prefix)
 	return nil
+}
+
+// listFiles lists the files and symlinks under dir, relative to it, without
+// reading them.
+func listFiles(dir string) ([]string, error) {
+	var out []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			rel, _ := filepath.Rel(dir, path)
+			out = append(out, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	return out, err
+}
+
+// commonDir is the deepest directory that holds all of the files.
+func commonDir(files []string) string {
+	common := strings.Split(filepath.Dir(files[0]), "/")
+	for _, f := range files[1:] {
+		parts := strings.Split(filepath.Dir(f), "/")
+		n := 0
+		for n < len(common) && n < len(parts) && common[n] == parts[n] {
+			n++
+		}
+		common = common[:n]
+	}
+	return strings.Join(common, "/")
 }
 
 func tailString(s string, n int) string {

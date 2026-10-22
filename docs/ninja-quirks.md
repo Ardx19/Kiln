@@ -124,6 +124,7 @@ Ninja has no install step; `cmake --install` and `meson install` copy files over
 - **Rules** (see `internal/install/plan.go`): files this tree no longer installs are removed; files of another tree of the same project are refused unless `--swap` (which removes that tree's whole set); files of another project are refused unless `--force`; existing unowned files are adopted if identical and otherwise refused unless `--adopt`; a file to be removed or overwritten must still match its recorded hash, or `--force`.
 - **Git checkouts.** In-tree prefixes (RDKit's `RDK_INSTALL_INTREE`) are fine: git-tracked files are never removed and not overwritten without `--force`, and `.kiln/` is added to `.git/info/exclude`.
 - **Root-owned prefixes.** If you can't write to the prefix, `kiln install` stages in the build directory and prints `sudo kiln install --commit DIR`; the commit runs no build commands. `--stage` does the same on request.
+- **Absolute destinations.** Some projects (RDKit with `RDK_INSTALL_INTREE`) install to absolute paths such as `${CMAKE_SOURCE_DIR}/lib`, whatever the prefix. With `DESTDIR` those land under `stage/<that directory>`. If nothing was staged under the prefix, kiln takes the deepest directory holding all the staged files as the prefix and says so; if only some files fall outside the prefix it warns about them, since they aren't tracked.
 - **Scripts that ignore DESTDIR** are noticed by comparing the prefix before and after staging, and warned about; those files bypass ownership tracking.
 
 ## Declared environment and tests (M7)

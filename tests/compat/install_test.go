@@ -453,3 +453,41 @@ func TestInstallOtherGenerators(t *testing.T) {
 		t.Errorf("a script writing outside DESTDIR: exit %d\n%s", code, tail(out, 800))
 	}
 }
+
+// TestInstallAbsoluteDestinations: an install whose destinations are
+// absolute (RDKit's in-tree install writes into the source directory) puts
+// its files under stage/<that directory>, not under the prefix. kiln finds
+// them, says so, and warns about the few that fall outside a real prefix.
+func TestInstallAbsoluteDestinations(t *testing.T) {
+	e := newInstallEnv(t, "absolute")
+	build := filepath.Join(e.base, "tree")
+	nominal := filepath.Join(e.base, "nominal")
+	real := filepath.Join(e.base, "checkout")
+	os.MkdirAll(filepath.Join(build, ".kiln"), 0o755)
+	os.MkdirAll(real, 0o755)
+	writeFile(t, filepath.Join(build, "build.ninja"), "rule t\n  command = touch $out\nbuild tool: t\ndefault tool\n")
+	conf := func(cmd string) {
+		writeFile(t, filepath.Join(build, ".kiln", "config.toml"),
+			"[install]\nproject = \"abs\"\nprefix = \""+nominal+"\"\ncommand = '"+cmd+"'\n")
+	}
+	conf(`mkdir -p "$DESTDIR` + real + `/bin" "$DESTDIR` + real + `/lib" && cp tool "$DESTDIR` + real + `/bin/tool" && echo x > "$DESTDIR` + real + `/lib/libx.so"`)
+	out, code := e.kilnInstall(build, nil)
+	if code != 0 || !strings.Contains(out, "treating "+real) {
+		t.Fatalf("install: exit %d\n%s", code, tail(out, 800))
+	}
+	for _, f := range []string{"bin/tool", "lib/libx.so"} {
+		if _, err := os.Stat(filepath.Join(real, f)); err != nil {
+			t.Errorf("%s wasn't installed: %v", f, err)
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(real, ".kiln", "owners.json")); !strings.Contains(string(b), "bin/tool") {
+		t.Errorf("ownership wasn't recorded in the real prefix")
+	}
+	// Some files under the prefix and some outside: the outside ones are
+	// reported.
+	conf(`mkdir -p "$DESTDIR` + nominal + `/bin" "$DESTDIR` + real + `/lib" && cp tool "$DESTDIR` + nominal + `/bin/tool" && echo x > "$DESTDIR` + real + `/lib/stray.so"`)
+	out, code = e.kilnInstall(build, nil)
+	if code != 0 || !strings.Contains(out, "outside "+nominal) {
+		t.Errorf("mixed destinations: exit %d\n%s", code, tail(out, 800))
+	}
+}
