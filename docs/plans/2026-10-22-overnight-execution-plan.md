@@ -123,3 +123,27 @@ Times are the real commit times (IST).
 - **06:44** RDKit in-tree install swap done on kiln's own checkout (both variants built with kiln: the Boost.Python tree reused from Phase A, the nanobind tree built detached in 26.5 minutes). The variants differ by exactly 66 and 57 paths; after `--swap` none of the other variant's remain, and `import rdkit.Chem` works both ways. It exposed that RDKit installs to absolute destinations, so kiln now finds the real prefix itself (`ac28c65`).
 - **06:47** Real-root `--commit` tested in a container (`make root-install-test`, also a CI job). It found a defect: files installed by root kept the staging user's ownership. Fixed, and the commit now validates a staged plan before changing anything (no paths outside the prefix, no symlink escapes as root, staged files unchanged since planning).
 - **07:10** Laptop-profile benchmark. The first attempt exposed a real defect (with no history kiln overcommitted: 768 MiB guess per compile, brake stopping one job a second); fixed with larger first guesses and a brake that stops as many young jobs as needed (`e83960e`). Rerun on both profiles with the fixed code: kiln beats the best hand-tuned Ninja on both (details in docs/benchmarks.md).
+
+## Remote benchmark server (kiln-bench)
+
+Added 2026-10-22. SSH alias `kiln-bench` (key `~/.ssh/kiln_bench`, user `swarnavas`; 32 cores, 251 GiB RAM, shared machine). **Strict boundary: everything lives under one directory and nothing outside it is touched.**
+
+`ROOT=/home/swarnavas/Work/PhD_Work/Covaln_Dev_work/testing_btp/kiln-bench`
+
+```
+$ROOT/
+  miniconda/     own Miniconda (batch install with -p; no `conda init`, no shell rc edits)
+  env/           conda env (-p): go 1.25.1, cmake 3.22.1, ccache 4.5.1, ninja 1.10.1
+  pkgs/          CONDA_PKGS_DIRS (package cache stays here, not in ~/.conda)
+  tmp/           TMPDIR, GOPATH, GOCACHE, CCACHE_DIR, XDG_CACHE_HOME
+  kiln/          clone of this repo
+  duckdb/  rdkit/  llvm/    one folder per project: its own clone, build trees and results
+  results/       raw benchmark output
+```
+
+Rules:
+- Every command runs with `HOME`-relative state redirected into `$ROOT` (an `activate.sh` there sets PATH, CONDA_PKGS_DIRS, TMPDIR, GOPATH, GOCACHE, CCACHE_DIR, XDG_CACHE_HOME). Do not use the existing `~/miniconda3`: it would read `~/.condarc` and write its package cache outside `$ROOT`.
+- No sudo, no apt, no edits to dotfiles, no system services. Docker is not used unless approved (images and layers land in /var/lib/docker, outside `$ROOT`); the container profile is otherwise emulated with kiln's own memory limits, or run with cgroup limits only if the user allows it.
+- At most about 24 of the 32 cores; the machine is shared. Keep the bench memory guard on.
+- `/home` is a separate 11 TB `/dev/sda` at 91%; expect slower I/O than the laptop and label every table with the server's specs and filesystem.
+- Cleanup is `rm -rf $ROOT`.
