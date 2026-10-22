@@ -327,6 +327,11 @@ The finish line is **v0.3** (M1–M8). M9 stays a prioritized backlog.
 - **Corpus builds with kiln, tests compared with Ninja's trees.**
   - **protobuf v36.2**, from scratch at `-j8`: 1,139 edges in 19.3 min, against about 19 min for Ninja at its default `-j14`. The build was interrupted at edge 62 and resumed. All 4 ctest entries pass in both trees. Afterwards neither kiln nor Ninja finds work left.
   - **GLib**: all 403 tests give the same result in the kiln-built and Ninja-built trees: 393 pass, 8 skip, `gtester-xmllint-check` fails, and `threadtests` times out.
+- **The big corpus builds with kiln (2026-10-22).**
+  - **DuckDB v2.0.0** (699 edges, `-j6`): built by Ninja and by kiln; all 7,648 test cases pass in both trees.
+  - **RDKit `Release_2026_09_1`** (1,911 edges, `-j6`): built by Ninja and by kiln; `ctest` gives the same result for all 278 tests in both trees (229 pass, and the same 49 Python-wrapper tests fail).
+  - **LLVM 23.1.4 with clang, X86, Release** (4,392 edges, `-j8`, `LLVM_PARALLEL_LINK_JOBS=2`): all 124 binaries in `bin/` are byte-identical to the Ninja-built ones, and both tools find nothing left to do.
+  - **DuckDB's two always-dirty edges** (`.cache/clangd` and `repository`) are utility targets with no output file, so they are dirty under Ninja too.
 - **Found along the way:** the fixture's code generator didn't escape spaces in its depfile, and kiln didn't recognise `CMAKE_MAKE_PROGRAM:UNINITIALIZED=` in `CMakeCache.txt`. Both are fixed.
 
 **Tasks**
@@ -386,7 +391,7 @@ The finish line is **v0.3** (M1–M8). M9 stays a prioritized backlog.
   - several build dirs per source, and git worktrees
   - relative `-C`, `-f` with a non-default manifest, and `builddir`
   - paths with spaces, a symlinked build dir, and a read-only source tree
-- [ ] Full builds of the large corpus projects at a conservative `-j` succeed, and test results match Ninja-built trees. *Done for fmt, Ninja, GLib, protobuf and the C++20 modules sample. RDKit and LLVM are waiting for your go-ahead, since building them with kiln rewrites your trees.*
+- [x] Full builds of the large corpus projects at a conservative `-j` succeed, and test results match Ninja-built trees. *(fmt, Ninja, GLib, protobuf, the C++20 modules sample, DuckDB, RDKit and LLVM; see the M1e progress note.)*
 - [x] A no-op build of the largest corpus tree is within 1.5× of Ninja's time. Load time on a 500k-edge synthetic manifest is within 1.5× of Ninja's.
 
 ### M2 — Drop-in integration (S)

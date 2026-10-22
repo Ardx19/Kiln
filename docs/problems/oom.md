@@ -50,3 +50,7 @@ The sampler costs about 0.2% of a core with 14 jobs. Behaviour is checked by a s
 5. **Logged durations depend on load.** Each compile took 54–96 s alone but 158–238 s in the last real build. That's fine for ranking edges by critical path, but those durations can't be read as costs measured on an idle machine.
 
 **Still open:** these are the slowest translation units, not typical ones. Before setting the default estimate for edges with no history, measure a sample of ordinary translation units and a large link. Linking clang is the obvious case once an LLVM tree exists.
+
+## A real occurrence (2026-10-22)
+
+While LLVM 23.1.4 (clang, X86, Release) was being rebuilt at `-j8` on the 11.7 GiB laptop, `SemaOpenMP.cpp` was OOM-killed (`c++: fatal error: Killed signal terminated program cc1plus`) and the build stopped. That run used a kiln without memory scheduling, and other memory-hungry tests were running on the machine too, which is the everyday way this happens. Resuming the same tree with the current kiln, at the same `-j8` and with no other changes, finished the remaining 2,136 edges in 58 minutes with no failures: the scheduler held edges back 1,185 times and reserved memory for a big one 756 times, and nothing was killed. All 124 resulting binaries are byte-identical to Ninja's. This is one run, not a benchmark (the machine was shared); the controlled comparison is the M5 benchmark.
