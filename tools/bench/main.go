@@ -463,10 +463,13 @@ func appendRow(path string, r Result) error {
 	return err
 }
 
-// clean makes the targets out of date: output files are removed, anything
-// else (a phony target) is cleaned by ninja -t clean.
+// clean makes the targets out of date: output files are removed, and a
+// phony target is cleaned with ninja -t clean, which also removes what it
+// is built from (a cold build of it). An output that doesn't exist, as
+// after a run that was killed, is out of date already; it must not go to
+// ninja -t clean, which would remove everything built to make it too.
 func clean(ninja, dir string, targets []string) error {
-	var rest []string
+	var others []string
 	for _, t := range targets {
 		p := filepath.Join(dir, t)
 		if fi, err := os.Lstat(p); err == nil && fi.Mode().IsRegular() {
@@ -475,15 +478,46 @@ func clean(ninja, dir string, targets []string) error {
 			}
 			continue
 		}
-		rest = append(rest, t)
+		others = append(others, t)
 	}
-	if len(rest) == 0 {
+	if len(others) == 0 {
 		return nil
 	}
-	if out, err := exec.Command(ninja, append([]string{"-C", dir, "-t", "clean"}, rest...)...).CombinedOutput(); err != nil {
+	phony, err := phonyTargets(ninja, dir, others)
+	if err != nil || len(phony) == 0 {
+		return err
+	}
+	if out, err := exec.Command(ninja, append([]string{"-C", dir, "-t", "clean"}, phony...)...).CombinedOutput(); err != nil {
 		return fmt.Errorf("%v\n%s", err, out)
 	}
 	return nil
+}
+
+// phonyTargets returns the targets that ninja -t query says are built by
+// the phony rule.
+func phonyTargets(ninja, dir string, targets []string) ([]string, error) {
+	out, err := exec.Command(ninja, append([]string{"-C", dir, "-t", "query"}, targets...)...).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("ninja -t query: %v\n%s", err, out)
+	}
+	return parsePhony(string(out)), nil
+}
+
+// parsePhony reads ninja -t query's output: a "target:" line, then
+// "  input: RULE" and the rest of the block indented.
+func parsePhony(query string) []string {
+	var phony []string
+	target := ""
+	for _, line := range strings.Split(query, "\n") {
+		switch {
+		case line != "" && line[0] != ' ' && strings.HasSuffix(line, ":"):
+			target = strings.TrimSuffix(line, ":")
+		case strings.TrimSpace(line) == "input: phony" && target != "":
+			phony = append(phony, target)
+			target = ""
+		}
+	}
+	return phony
 }
 
 // stop receives the signals that interrupt bench. The run in progress is

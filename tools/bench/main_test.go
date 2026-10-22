@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -288,5 +289,75 @@ echo line >>"$h"
 	seen, _ := os.ReadFile(filepath.Join(dir, "seen"))
 	if got := strings.Fields(string(seen)); strings.Join(got, ",") != "0,1,0,1" {
 		t.Errorf("kiln started with %v history lines, want 0,1,0,1 (first, learned, per round)", got)
+	}
+}
+
+func TestParsePhony(t *testing.T) {
+	query := `all:
+  input: phony
+    libfmt.a
+  outputs:
+    CMakeFiles/install.util
+CMakeFiles/fmt.dir/src/os.cc.o:
+  input: CXX_COMPILER__fmt_unscanned_Release
+    ../src/src/os.cc
+    || cmake_object_order_depends_target_fmt
+  outputs:
+    libfmt.a
+test/all:
+  input: phony
+`
+	if got := parsePhony(query); strings.Join(got, ",") != "all,test/all" {
+		t.Errorf("parsePhony = %v, want [all test/all]", got)
+	}
+}
+
+// TestCleanLeavesInputsOfMissingOutputs is the case of a run killed before
+// its outputs were written: cleaning must not remove what they are built
+// from (ninja -t clean on a file target removes its inputs' outputs too).
+func TestCleanLeavesInputsOfMissingOutputs(t *testing.T) {
+	tools := os.Getenv("KILN_TOOLS") // laid out by scripts/tools.sh
+	if tools == "" {
+		tools = filepath.Join("..", "..", ".tools")
+	}
+	ninja, err := filepath.Abs(filepath.Join(tools, "ninja", "1.13.2", "ninja"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(ninja); err != nil {
+		if ninja, err = exec.LookPath("ninja"); err != nil {
+			t.Skip("no ninja in KILN_TOOLS or on PATH")
+		}
+	}
+	dir := t.TempDir()
+	write := func(name, text string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("build.ninja", `rule cp
+  command = cp $in $out
+build gen.h: cp src.h
+build out.o: cp src.c || gen.h
+build all: phony out.o
+`)
+	write("src.h", "h")
+	write("src.c", "c")
+	if out, err := exec.Command(ninja, "-C", dir).CombinedOutput(); err != nil {
+		t.Fatalf("ninja: %v\n%s", err, out)
+	}
+	os.Remove(filepath.Join(dir, "out.o")) // as a killed run leaves it
+	if err := clean(ninja, dir, []string{"out.o"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "gen.h")); err != nil {
+		t.Errorf("cleaning a missing output removed an input built for it: %v", err)
+	}
+	// A phony target is still cleaned the cold way, with its inputs.
+	if err := clean(ninja, dir, []string{"all"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "gen.h")); err == nil {
+		t.Error("cleaning the phony target all left gen.h")
 	}
 }
