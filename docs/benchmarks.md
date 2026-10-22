@@ -49,25 +49,25 @@ Limits, stated plainly:
 - **A subset, not a cold full build.** The full RDKit build, LLVM and DuckDB are still to be run, as is a second project in the container profile.
 - **Ordering.** In the container the hand-tuned reruns ran *after* the kiln runs, so page-cache warmth does not favour kiln. On the laptop the hand-tuned `-j6` ran before kiln's runs.
 - **Peak memory** is the system's (laptop) or the container's working set (container), sampled twice a second, and includes file cache the compiles read. The learned laptop run used more memory than the hand-tuned one (9.1 vs 8.4 GiB) because it keeps more jobs running; the guard never fired.
-- ccache was disabled. Raw numbers: `bench/results/rdkit-heavy.jsonl`. Reproduce with `bench/rdkit-heavy.sh 6g 3` (container) or `tools/bench` directly (laptop; use a guard).
+- ccache was disabled. Raw numbers: `bench/results/rdkit-heavy.jsonl`. Reproduce with `bench/heavy.sh rdkit container` or `bench/heavy.sh rdkit laptop` (below).
 
 ## Reproducing the memory benchmark
 
-`tools/bench` runs one set of targets from clean with four runners: `ninja-default` (Ninja at its default `-j`), `ninja-tuned` (`-jN`, the hand-tuned setting), `kiln-first` (an empty memory history) and `kiln-learned` (the history that run left). It records wall time, the system's peak memory use, and OOM kills, and prints a Markdown table. A watchdog kills a run that leaves less than `-guard` MiB, so an unthrottled Ninja can't take the machine down; such a run is reported as aborted.
+`tools/bench` runs one set of targets from clean with these runners: `ninja-default` (Ninja at its default `-j`), `ninja-tuned` (`-jN` for each hand-tuned value in `-tuned`), `kiln-first` (an empty memory history) and `kiln-learned` (the history its `kiln-first` left). It records wall time, the system's peak memory use, and OOM kills. A watchdog kills a run that leaves less than `-guard` MiB, so an unthrottled Ninja can't take the machine down (the run is reported as aborted), and `-cap` kills a run that takes too long. Both kill the run's whole process tree.
+
+A series repeats every runner `-rounds` times, rotating the order each round so that no runner always goes first. Each row is appended to `-out` when its run ends, and runs already there are skipped, so a series can be stopped and continued; an interrupted run (Ctrl-C) is killed and not recorded. `-budget 15m` runs only the next chunk, the pending runs that earlier runs say will fit in 15 minutes. `-plan` prints the chunks, and `-summary` the median and range over the rounds. Each round's `kiln-first` clears kiln's memory history, and its `kiln-learned` starts from a snapshot of what that run left (kept in `.kiln/bench/`), so splitting a series into chunks doesn't change what kiln learned from.
+
+`bench/heavy.sh PROJECT PROFILE` runs this on a project's heaviest compiles (`bench/PROJECT-heavy-targets.txt`) in kiln's corpus trees:
 
 ```bash
-go build -o .work/bench ./tools/bench && go build -o .work/kiln ./cmd/kiln
-
-# Laptop profile (use the heavy targets, not a full cold build, to iterate)
-CCACHE_DISABLE=1 .work/bench -dir .work/corpus/rdkit/build -ninja .tools/ninja/1.13.2/ninja \
-  -kiln .work/kiln -tuned 6 -project rdkit -profile laptop -out bench/results.jsonl \
-  -guard 1500 $(ninja -C .work/corpus/rdkit/build -t targets all | grep -E 'MolOps|rdmolfiles' | cut -d: -f1)
-
-# Small-runner profile: the same inside a container with a memory limit
-docker run --rm --cpus=4 --memory=8g --memory-swap=8g -v "$PWD:$PWD" -w "$PWD" kiln-ci \
-  .work/bench -dir ... -profile container-4cpu-8g ...
+bench/heavy.sh rdkit laptop -tuned 5,6,7 -only ninja-tuned,kiln-first,kiln-learned -plan   # the chunks
+bench/heavy.sh rdkit laptop -tuned 5,6,7 -only ninja-tuned,kiln-first,kiln-learned         # the next chunk; repeat
+bench/heavy.sh rdkit laptop -summary
+bench/heavy.sh rdkit container -tuned 3,4,5 -only ninja-tuned,kiln-first,kiln-learned
 ```
+
+The `laptop` profile runs on the host with a 600 MiB guard. `container` runs in the `kiln-bench` image (`docker build -f bench/Dockerfile -t kiln-bench bench`) with 4 CPUs, 6 GiB and no swap, where a real OOM kill is the result. The defaults are 3 rounds, 15-minute chunks, a 6-minute cap and the series name `rounds`; flags after the profile override them. Rows go to `bench/results/PROJECT-heavy.jsonl`.
 
 For a link-heavy project, build LLVM with `-DLLVM_PARALLEL_LINK_JOBS=N` as the hand-tuned setting (`corpus/corpus.sh` does this through `LLVM_CMAKE_ARGS`); the point of the comparison is that kiln needs no such setting. For DuckDB, add a row for its documented workaround, `GEN= make`.
 
-Each row of a table should state the machine profile and the exact command; the JSON lines in `bench/results.jsonl` carry the same fields.
+Each row of a table should state the machine profile and the exact command; the JSON lines in `bench/results/` carry the same fields.
