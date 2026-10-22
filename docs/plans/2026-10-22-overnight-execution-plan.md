@@ -134,7 +134,7 @@ Times are the real commit times (IST).
 - **17:45** LLVM laptop (7 units of ~2 GiB): Ninja's default is stopped by the guard 3 of 3 times; best `-j4` 142 s. kiln's first run was stopped by the 600 MiB guard, which sits between kiln's watermarks (~940 MiB no new starts, ~470 MiB stop the youngest), so this is an open question; the learned rows were not run (`b987e07`).
 - **19:05** DuckDB container, 3 rounds: Ninja's default, `-j4` and `-j5` fail every time (OOM kills); `-j3` 338 s. kiln finishes every run: 522 s first, 366 s learned, 8% slower than `-j3` (`fe75c01`).
 
-- **20:47** Scheduler fixes the benchmarks found (`e0c8f40`): on a whole machine the watermarks are at least 1 GiB / 768 MiB (containers keep a tenth / a twentieth of the budget), and an edge with no history and no same-rule neighbours gets the median of its kind, not the maximum (`-d sched` showed DuckDB's units all predicted at 3 GiB and run one at a time).
+- **20:51** Scheduler fixes the benchmarks found (`e0c8f40`): on a whole machine the watermarks are at least 1 GiB / 768 MiB (containers keep a tenth / a twentieth of the budget), and an edge with no history and no same-rule neighbours gets the median of its kind, not the maximum (`-d sched` showed DuckDB's units all predicted at 3 GiB and run one at a time).
 - **22:26** kiln rows rerun with it, 3 rounds each (`c470911`): LLVM now finishes every time (164/155 s; best Ninja -j4 142 s), RDKit laptop 133/128 s (-j7 143 s), RDKit container 167/164 s (-j4 170 s), DuckDB 360/363 s (only -j3 finishes, 338 s).
 
 **Open after this:** cold full builds; LLVM in the container and DuckDB on the laptop; the kiln reruns were not interleaved with the Ninja rows; tagging v0.1.0 (held).
