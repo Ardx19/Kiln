@@ -49,3 +49,4 @@
 {"project":"rdkit-12-heaviest","profile":"container-4cpu-6g","series":"kiln-e0c8f40","round":2,"runner":"kiln-first","exit":0,"wall_s":165.926714184,"peak_mib":3781.84375,"oom_kills":0,"start":"2026-10-22T16:01:08Z"}
 {"project":"rdkit-12-heaviest","profile":"container-4cpu-6g","series":"kiln-e0c8f40","round":2,"runner":"kiln-learned","exit":0,"wall_s":163.70763349,"peak_mib":4577.94140625,"oom_kills":0,"start":"2026-10-22T16:04:09Z"}
 {"project":"rdkit-12-heaviest","profile":"container-4cpu-6g","series":"kiln-e0c8f40","round":3,"runner":"kiln-first","exit":0,"wall_s":178.36753553,"peak_mib":3776.7109375,"oom_kills":0,"start":"2026-10-22T16:07:07Z"}
+{"project":"rdkit-12-heaviest","profile":"container-4cpu-6g","series":"kiln-e0c8f40","round":3,"runner":"kiln-learned","exit":0,"wall_s":168.67243667,"peak_mib":4798.2265625,"oom_kills":0,"start":"2026-10-22T16:10:41Z"}
