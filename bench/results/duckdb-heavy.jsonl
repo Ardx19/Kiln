@@ -1,2 +1,3 @@
 {"project":"duckdb-12-heaviest","profile":"container-4cpu-6g","series":"rounds","round":1,"runner":"ninja-default","exit":1,"wall_s":125.507417972,"peak_mib":6137.93359375,"oom_kills":2,"start":"2026-10-22T12:06:30Z"}
 {"project":"duckdb-12-heaviest","profile":"container-4cpu-6g","series":"rounds","round":1,"runner":"ninja-tuned","exit":0,"wall_s":338.054627009,"peak_mib":4754.125,"oom_kills":0,"jobs":3,"start":"2026-10-22T12:08:48Z"}
+{"project":"duckdb-12-heaviest","profile":"container-4cpu-6g","series":"rounds","round":1,"runner":"ninja-tuned","exit":1,"wall_s":92.473831148,"peak_mib":6136.296875,"oom_kills":1,"jobs":4,"start":"2026-10-22T12:15:31Z"}
