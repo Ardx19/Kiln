@@ -1,6 +1,6 @@
 # Benchmarks
 
-This page says how to reproduce kiln's benchmark tables and records what has been measured. **The full headline runs (cold builds of RDKit, LLVM and DuckDB, on a laptop and in a small container) have not been run**: they take hours each and want an otherwise idle machine. What has been run is the heaviest compiles of each project, three times per setting: RDKit on both profiles, LLVM on the laptop and DuckDB in the container. In short: Ninja's default failed or was stopped by the guard every time on all four; kiln with no flags never ran out of memory, and its speed against the best hand-tuned `-j` ranges from 5-6% faster (RDKit, within the noise) to 8% slower (DuckDB); on LLVM its first run was stopped by the benchmark's own guard, which is an open question.
+This page says how to reproduce kiln's benchmark tables and records what has been measured. **The full headline runs (cold builds of RDKit, LLVM and DuckDB, on a laptop and in a small container) have not been run**: they take hours each and want an otherwise idle machine. What has been run is the heaviest compiles of each project, three times per setting: RDKit on both profiles, LLVM on the laptop and DuckDB in the container. In short: Ninja's default failed, or was stopped by the guard, every time on all four. kiln with no flags (as of `e0c8f40`, which these benchmarks led to) finished every run with no OOM kill, and its median against the best hand-tuned `-j` ranges from about 10% faster (RDKit on the laptop) through a tie (RDKit in the container) to 7-9% slower (DuckDB, LLVM).
 
 ## Measured so far
 
@@ -29,14 +29,14 @@ The 12 slowest translation units of an RDKit `Release_2026_09_1` build (Boost.Py
 | ninja `-j5`, hand-tuned | 3 of 3 ok | 157 s (152–177) | 7.1 GiB | 0 |
 | ninja `-j6`, hand-tuned | 3 of 3 ok | 148 s (144–150) | 8.4 GiB | 0 |
 | ninja `-j7`, hand-tuned (best) | 3 of 3 ok | 143 s (136–198) | 8.3 GiB | 0 |
-| **kiln, first run** (no memory history) | 3 of 3 ok | 144 s (139–206) | 8.0 GiB | 0 |
-| **kiln, learned run** | 3 of 3 ok | **135 s** (132–208) | 9.2 GiB | 0 |
+| **kiln, first run** (no memory history) | 3 of 3 ok | 133 s (131–140) | 8.2 GiB | 0 |
+| **kiln, learned run** | 3 of 3 ok | **128 s** (128–132) | 9.1 GiB | 0 |
 
-Command: `bench/heavy.sh rdkit laptop -tuned 5,6,7 -only ninja-tuned,kiln-first,kiln-learned`, run in four chunks between 15:05 and 15:50 IST.
+Command: `bench/heavy.sh rdkit laptop -tuned 5,6,7 -only ninja-tuned,kiln-first,kiln-learned`, run in four chunks between 15:05 and 15:50 IST. The kiln rows are from the scheduler as of `e0c8f40` (below), rerun with `-only kiln-first,kiln-learned -series kiln-e0c8f40` from 21:10 to 21:24; with the earlier scheduler they were 144 s (139–206) and 135 s (132–208), interleaved with the Ninja rows.
 
-What this shows on the laptop: kiln with no flags matches the best hand-tuned Ninja on its first run and is about 6% faster once it has learned the jobs (135 s against 143 s). That is a smaller margin than the 16% a single earlier run suggested (it compared against `-j6` at 160 s; sweeping `-j5` to `-j7` found a better Ninja). Within a round, which is the fairest comparison, the learned run beat the round's best Ninja by 8% in round 1 (132 s against 143 s) and tied it in round 3 (135 s against 136 s); in round 2 its runs fell in the slow spell below.
+What this shows on the laptop: kiln with no flags is about 7% faster than the best hand-tuned Ninja on its first run and 10% once it has learned the jobs (128 s against 143 s), and its range is tight. Two cautions: the kiln rerun was not interleaved with the Ninja rows (it ran hours later, after the scheduler change), and the earlier, interleaved kiln runs were 6% faster than `-j7` once learned, a margin within the noise. The single run measured first, against `-j6`, had suggested 16%.
 
-**The slow spell in round 2.** Four runs in a row, from 15:21 to 15:36 (round 2's `-j7`, kiln's first and learned runs, then `-j5`), were 12-58% slower than the same runners in rounds 1 and 3: 198, 206, 208 and 177 s. Nothing else was running in WSL (the load was the compiles; the Claude Code app took well under one core), so the cause is probably on the Windows side: another program, or heat throttling the CPU, which WSL can't see. It is why those ranges reach so high, and why medians rather than means are reported.
+**The slow spell in round 2.** Four runs in a row, from 15:21 to 15:36 (round 2's `-j7`, kiln's first and learned runs under the earlier scheduler, then `-j5`), were 12-58% slower than the same runners in rounds 1 and 3: 198, 206, 208 and 177 s. Nothing else was running in WSL (the load was the compiles; the Claude Code app took well under one core), so the cause is probably on the Windows side: another program, or heat throttling the CPU, which WSL can't see. It is why those ranges reach so high, and why medians rather than means are reported.
 
 **Small runner: a container with 4 CPUs and 6 GiB (no swap)**, GCC 11.4, 3 runs per row in the same rotated rounds. Here nothing guards the run: running out of memory means a real OOM kill.
 
@@ -46,20 +46,21 @@ What this shows on the laptop: kiln with no flags matches the best hand-tuned Ni
 | ninja `-j3`, hand-tuned | 3 of 3 ok | 178 s (174–190) | 3.7 GiB | 0 |
 | ninja `-j4`, hand-tuned (best) | 3 of 3 ok | 170 s (163–170) | 5.0 GiB | 0 |
 | ninja `-j5`, hand-tuned | 3 of 3 ok | 185 s (182–192) | 5.7 GiB | 0 |
-| **kiln, first run** (no memory history) | 3 of 3 ok | 181 s (173–188) | 4.6 GiB | 0 |
-| **kiln, learned run** | 3 of 3 ok | **161 s** (157–179) | 4.5 GiB | 0 |
+| **kiln, first run** (no memory history) | 3 of 3 ok | 167 s (166–178) | 3.7 GiB | 0 |
+| **kiln, learned run** | 3 of 3 ok | **164 s** (156–169) | 4.5 GiB | 0 |
 
-Command: `bench/heavy.sh rdkit container -tuned 3,4,5 -only ninja-tuned,kiln-first,kiln-learned`, run in four chunks between 15:51 and 16:41 IST (the rows' start times are the container's UTC).
+Command: `bench/heavy.sh rdkit container -tuned 3,4,5 -only ninja-tuned,kiln-first,kiln-learned`, run in four chunks between 15:51 and 16:41 IST (the rows' start times are the container's UTC). kiln rows as of `e0c8f40`, rerun from 21:25 to 21:43; with the earlier scheduler they were 181 s (173–188) and 161 s (157–179).
 
-What this shows, on both profiles: with no settings at all, kiln finishes where Ninja's default fails (an OOM kill in the container; on the laptop the guard had to stop it). Its first run, which has to guess, is about as fast as the hand-tuned settings (within 1% of the best on the laptop, 6% behind it in the container). Once it has learned the jobs, its median is 5-6% below the best hand-tuned Ninja on both (135 against 143 s, 161 against 170 s). That margin is within the run-to-run noise: compared within each round, the learned run beat the round's best Ninja twice, tied it twice and lost twice (in the laptop's round 2, where it fell in the slow spell, 208 s against `-j6`'s 144 s before it; and in the container's round 1, 179 s against 170 s). So the claim these numbers support is that kiln with no flags matches the best `-j` found by sweeping, and is a little faster once it has learned, not that it is clearly faster. The single runs measured first (11% and 16% faster) overstated it.
+What this shows, on both profiles: with no settings at all, kiln finishes where Ninja's default fails (an OOM kill in the container; on the laptop the guard had to stop it). In the container it matches the best hand-tuned Ninja (167 and 164 s against 170 s, within the noise); on the laptop it is 7-10% faster. With the earlier scheduler, compared within each round, the learned run beat the round's best Ninja twice, tied it twice and lost twice, so the honest claim is that kiln with no flags matches the best `-j` found by sweeping, and may be a little faster once it has learned. The single runs measured first (11% and 16% faster) overstated it.
 
 How it got there, because the first attempt was worse: my first laptop run had kiln start with a 768 MiB guess for a compile. About a dozen heavy compiles started together, each grew to 1.3 GiB, and kiln's brake (which then stopped one job a second) could not keep up, so the benchmark's guard had to stop the run. That is a real defect, not a benchmark artefact. The fixes are in the code the numbers above come from: the first guess for a compile is now 1.5 GiB (3 GiB for a link), and the brake stops as many young jobs as it takes to win back the low watermark. The container "first run" improved from 201 s to 180 s with the same change.
 
 Limits, stated plainly:
+- **The kiln rows were rerun after the scheduler change** (`e0c8f40`), hours after the Ninja rows, not interleaved with them; the laptop's speed drifted by up to 58% within this session (the slow spell above).
 - **Three runs per row**, on one machine (a Ryzen 5 5500U laptop) and one project. Default Ninja's rows are single runs, made earlier, since repeating a known failure costs 18 minutes in the container. With three runs, a difference of a few percent is within the noise; the ranges show how much. "Best hand-tuned" is the best of the values swept: `-j5` to `-j7` on the laptop, `-j3` to `-j5` in the container.
 - **Subsets, not cold full builds.** Each project's heaviest compiles, chosen from its build log; full builds of RDKit, LLVM and DuckDB are still to be run, as are LLVM in the container and DuckDB on the laptop.
 - **Ordering and page cache.** The page cache can't be dropped without root, so runs after the first in a chunk find the sources and headers cached. The rotation gives every runner each position once over three rounds.
-- **Peak memory** is the system's (laptop) or the container's working set (container), sampled twice a second, and includes file cache the compiles read. The learned laptop runs used more memory than the hand-tuned ones (9.2 against 8.3 GiB) because they keep more jobs running; the guard never fired.
+- **Peak memory** is the system's (laptop) or the container's working set (container), sampled twice a second, and includes file cache the compiles read. The learned laptop runs used more memory than the hand-tuned ones (9.1 against 8.3 GiB) because they keep more jobs running; the guard never fired.
 - ccache was disabled. Raw numbers, one JSON line per run with its start time: `bench/results/rdkit-heavy.jsonl`. Reproduce with `bench/heavy.sh rdkit laptop` or `bench/heavy.sh rdkit container` (below).
 
 ## LLVM's heaviest compiles (2026-10-22)
@@ -74,12 +75,14 @@ Seven of the slowest translation units of an LLVM build with Clang (Release, GCC
 | ninja `-j3`, hand-tuned | 3 of 3 ok | 164 s (160–173) | 6.6 GiB | 0 |
 | ninja `-j4`, hand-tuned (best) | 3 of 3 ok | **142 s** (142–153) | 8.3 GiB | 0 |
 | ninja `-j5`, hand-tuned | 3 of 3 ok | 154 s (146–163) | 10.0 GiB | 0 |
-| kiln, first run | **stopped by the guard**, 1 of 1 | stopped after 77 s | 11.1 GiB | n/a |
-| kiln, learned run | not run (see below) | | | |
+| **kiln, first run** (no memory history) | 3 of 3 ok | 164 s (162–177) | 10.9 GiB | 0 |
+| **kiln, learned run** | 3 of 3 ok | 155 s (151–158) | 8.7 GiB | 0 |
 
-Command: `bench/heavy.sh llvm laptop -tuned 3,4,5`, with `-only ninja-default,ninja-tuned` for rounds 2 and 3; 16:50–17:32 IST.
+Command: `bench/heavy.sh llvm laptop -tuned 3,4,5`, with `-only ninja-default,ninja-tuned` for rounds 2 and 3; 16:50–17:32 IST. kiln rows as of `e0c8f40`: `-only kiln-first,kiln-learned -series kiln-e0c8f40`, 20:52–21:09.
 
-**kiln did not finish here, and why is an open question, not a result either way.** With no history, kiln guesses 1.5 GiB for a compile, so its budget (90% of the 10.5 GiB free at the start, about 9.4 GiB) lets it start six of these ~2.2 GiB units at once. Its brake has two watermarks: below a tenth of the budget free (about 940 MiB here) it starts nothing new, and only below a twentieth (about 470 MiB) does it stop the youngest jobs. The guard stops a run at 600 MiB, between the two, so as the six compiles grew past their guesses, the guard ended the run before kiln's brake was due to act. Whether kiln would then have recovered without an OOM kill was not measured: on this machine a real OOM can freeze WSL, which is why the guard exists. The run left no memory history (no compile had finished), so a "learned" run would only have repeated the first run, and the learned rows were not run. Settling it needs either a guard below kiln's critical watermark, or a kiln that keeps more headroom on its own, which is a change to the scheduler and would mean rerunning the RDKit kiln rows.
+What this shows: Ninja's default can't run these at all on this laptop, and kiln with no flags finishes every time, with the guard never firing. It is not the fastest: 155 s once learned against 142 s for the best hand-tuned `-j4` (9% slower), level with `-j5`. Its first run keeps about 800 MiB free at its peak (10.9 GiB used) by stopping compiles that outgrow their 1.5 GiB guesses and running them again, which costs time.
+
+**With the earlier scheduler, kiln did not finish here.** Its first run was stopped by the guard after 77 s (one run). With no history, kiln guesses 1.5 GiB for a compile, so its budget (90% of the 10.5 GiB free at the start, about 9.4 GiB) lets it start six of these ~2.2 GiB units at once. Its brake has two watermarks: below a tenth of the budget free (about 940 MiB here) it starts nothing new, and only below a twentieth (about 470 MiB) does it stop the youngest jobs. The guard stops a run at 600 MiB, between the two, so as the six compiles grew past their guesses, the guard ended the run before kiln's brake was due to act. Whether kiln would then have recovered without an OOM kill was not measured: on this machine a real OOM can freeze WSL, which is why the guard exists. The run left no memory history (no compile had finished), so a "learned" run would only have repeated the first run, and the learned rows were not run. That was a kiln defect: a whole machine swaps and stalls well before its OOM killer acts, so running it down to 470 MiB is unsafe whatever the guard says. Since `e0c8f40`, without a cgroup limit, kiln starts nothing new below 1 GiB free and stops the youngest jobs below 768 MiB (a quarter and an eighth of the budget on a small machine); inside a container's limit the watermarks stay a tenth and a twentieth. The rows above are from that code, and the RDKit kiln rows were rerun with it too.
 
 One run was redone. The bench tool cleaned a target by `ninja -t clean` when its output file was missing, which is the case after a killed run, and that also removes everything built to make it. After the guard stopped round 1's default Ninja, the next run (`-j3`) had to rebuild LLVMSupport and the TableGen tools and hit the time cap. The tool is fixed (`5826096`), and that row was dropped and rerun. The RDKit targets are built from sources only, so their runs were not affected.
 
@@ -93,12 +96,12 @@ The 12 slowest unity-build translation units of a DuckDB Release build (`ub_*.cp
 | ninja `-j3`, hand-tuned (best) | 3 of 3 ok | **338 s** (335–344) | 4.6 GiB | 0 |
 | ninja `-j4`, hand-tuned | **failed**, 3 of 3 | failed after 92-102 s | 6.0 GiB | 1 per run |
 | ninja `-j5`, hand-tuned | **failed**, 3 of 3 | failed after 107-124 s | 6.0 GiB | 1 per run |
-| **kiln, first run** (no memory history) | 3 of 3 ok | 522 s (455–563) | 5.1 GiB | 0 |
-| **kiln, learned run** | 3 of 3 ok | 366 s (341–367) | 4.5 GiB | 0 |
+| **kiln, first run** (no memory history) | 3 of 3 ok | 360 s (358–422) | 5.0 GiB | 0 |
+| **kiln, learned run** | 3 of 3 ok | 363 s (351–368) | 4.7 GiB | 0 |
 
-Command: `bench/heavy.sh duckdb container -tuned 3,4,5 -cap 10m`, 17:36–19:04 IST (the rows' start times are UTC). The first two runs had a 6-minute cap; it was raised to 10 minutes once `-j3` was seen to take 338 s. No run reached either cap.
+Command: `bench/heavy.sh duckdb container -tuned 3,4,5 -cap 10m`, 17:36–19:04 IST (the rows' start times are UTC). The first two runs had a 6-minute cap; it was raised to 10 minutes once `-j3` was seen to take 338 s. No run reached either cap. kiln rows as of `e0c8f40`, rerun from 21:44 to 22:24; with the earlier scheduler they were 522 s (455–563) and 366 s (341–367).
 
-What this shows: here only one of the four Ninja settings tried finishes at all, and kiln with no flags never ran out of memory. But it was slower than that one setting: 8% once it had learned the jobs (366 against 338 s; within a round it lost by 3, 32 and 22 s), and 54% on its first run (522 s). The first run is slow because its 1.5 GiB guess is too small for these units: as compiles grow past their guesses, kiln counts each running job at its actual size, so after two ~2 GiB compiles a third doesn't fit its ~5.2 GiB budget, and it ran about 1.5 compiles at a time on 4 CPUs. The claim this supports is safety, not speed: kiln is the only no-flags runner that finishes, and it is within 10% of the best hand-tuned `-j` once it has learned.
+What this shows: here only one of the four Ninja settings tried finishes at all, and kiln with no flags never ran out of memory. But it is a little slower than that one setting: 360 s first and 363 s learned against 338 s, about 7%. Its first run used to be much slower (522 s). `-d sched` showed why: CMake gives every DuckDB target its own compile rule, so a unit with no history was predicted from all compiles seen so far, at their maximum; once the 2.8 GiB `test_common` finished, every other unit was predicted at 3 GiB and they ran one at a time. Since `e0c8f40` that kind-wide guess is the median, while edges of the same rule keep the cautious 90th percentile. The claim this supports is safety, not speed: kiln is the only no-flags runner that finishes, within 10% of the best hand-tuned `-j`.
 
 The image needed ccache: DuckDB's build runs every compile through `/usr/bin/ccache` (with `CCACHE_DISABLE=1` it calls the compiler straight through). Without it the first attempt failed at once; those runs were not results and were dropped, and the bench tool now refuses to record a run that fails within 5 s.
 
