@@ -124,6 +124,18 @@ Times are the real commit times (IST).
 - **06:47** Real-root `--commit` tested in a container (`make root-install-test`, also a CI job). It found a defect: files installed by root kept the staging user's ownership. Fixed, and the commit now validates a staged plan before changing anything (no paths outside the prefix, no symlink escapes as root, staged files unchanged since planning).
 - **07:10** Laptop-profile benchmark. The first attempt exposed a real defect (with no history kiln overcommitted: 768 MiB guess per compile, brake stopping one job a second); fixed with larger first guesses and a brake that stops as many young jobs as needed (`e83960e`). Rerun on both profiles with the fixed code: kiln beats the best hand-tuned Ninja on both (details in docs/benchmarks.md).
 
+### 2026-10-22 afternoon: local memory benchmarks in chunks
+
+- **15:04** `tools/bench` runs series: rounds with a rotated order, resume from the results file, `-budget` chunks, `-cap`, per-round history snapshots for kiln's first/learned pair, `-plan` and `-summary`; `bench/heavy.sh PROJECT PROFILE` (`e2672f9`).
+- **15:50** RDKit laptop, 3 rounds: best Ninja `-j7` 143 s, kiln 144 s first and 135 s learned (medians). A slow spell in round 2 (15:21-15:36) is recorded. The earlier single run's 16% shrank to about 6%, within the noise (`686d3d7`).
+- **16:42** RDKit container, 3 rounds: best Ninja `-j4` 170 s, kiln 181 s first and 161 s learned. Across both profiles, kiln matches the best swept `-j` and is a little faster on median once it has learned (`4cb74ea`).
+- **17:01** A bench bug: cleaning a target whose output a killed run left missing used `ninja -t clean`, which also removed LLVM's TableGen tools and libraries. Fixed, tested, and the affected row rerun (`5826096`).
+- **17:36** The container image lacked ccache, which DuckDB's build runs every compile through. Added, and bench now refuses to record a run that fails within 5 s (`18d5928`).
+- **17:45** LLVM laptop (7 units of ~2 GiB): Ninja's default is stopped by the guard 3 of 3 times; best `-j4` 142 s. kiln's first run was stopped by the 600 MiB guard, which sits between kiln's watermarks (~940 MiB no new starts, ~470 MiB stop the youngest), so this is an open question; the learned rows were not run (`b987e07`).
+- **19:05** DuckDB container, 3 rounds: Ninja's default, `-j4` and `-j5` fail every time (OOM kills); `-j3` 338 s. kiln finishes every run: 522 s first, 366 s learned, 8% slower than `-j3` (`fe75c01`).
+
+**Open after this:** the LLVM guard against kiln's critical watermark (lower the guard, or have kiln keep more headroom and rerun the kiln rows); kiln's slow first run when its 1.5 GiB guess is too small (DuckDB); cold full builds; LLVM in the container and DuckDB on the laptop; tagging v0.1.0 (held).
+
 ## Remote benchmark server (kiln-bench)
 
 Added 2026-10-22. SSH alias `kiln-bench` (key `~/.ssh/kiln_bench`, user `swarnavas`; 32 cores, 251 GiB RAM, shared machine). **Strict boundary: everything lives under one directory and nothing outside it is touched.**
