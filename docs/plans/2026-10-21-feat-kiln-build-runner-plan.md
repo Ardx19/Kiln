@@ -480,7 +480,8 @@ The finish line is **v0.3** (M1–M8). M9 stays a prioritized backlog.
 **Progress (2026-10-22): M3 is built; the headline benchmark waits for M5.**
 - **Code.** `internal/memprobe` (sampler, 0.2% of a core with 14 jobs), `internal/memdb` (history and predictor), `internal/sched` (admission), `internal/sysinfo` (host and cgroup memory, v1 and v2), `internal/config` (TOML), `internal/build/memory.go` (the brake, requeue and OOM retry), and `kiln mem top|forget`. It's on by default, also in drop-in mode (`KILN_MEM=off` or `--mem=off` turns it off).
 - **Tests.** The admission simulation, the predictor, the probe, and `tests/compat/mem_test.go` (budget, brake, OOM retry, and the container test).
-- **Still to do:** the headline runs on RDKit, LLVM and DuckDB (they're part of M5's benchmarks).
+- **First headline result (2026-10-22), in [docs/benchmarks.md](../benchmarks.md):** RDKit's 12 heaviest compiles in a 4-CPU / 6 GiB container. Default Ninja fails (OOM kill, 1,108 s); the best hand-tuned `-j4` takes 175 s; kiln with no flags takes 201 s on the first run and 159 s once it has learned, with no OOM kills. Single runs of a subset on one machine.
+- **Still to do:** the cold full builds of RDKit, LLVM and DuckDB, and the laptop profile (part of M5's benchmarks).
 
 **Acceptance**
 - [x] **Simulation suite.** The admission policy is a pure function, tested with a simulated clock and synthetic job profiles. It never exceeds the budget by prediction, bounds starvation, respects `--min-jobs` and `-j`, and runs oversized jobs alone.
