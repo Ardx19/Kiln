@@ -367,25 +367,35 @@ func (s *memSched) tick() {
 		s.debugf("brake %s (headroom %s, swap %d pages)", map[bool]string{true: "on", false: "off"}[paused], size(headroom), swap)
 	}
 	s.paused = paused
-	if headroom >= s.critical || len(s.jobs) <= s.minJobs || time.Since(s.lastKill) < killCooldown {
+	if headroom >= s.critical || len(s.jobs)-len(s.killed) <= s.minJobs || time.Since(s.lastKill) < killCooldown {
 		return
 	}
-	var victim *graph.Edge
+	// Stop the youngest jobs, as many as it takes for their memory to bring
+	// headroom back up to the low watermark. One at a time isn't enough when
+	// a dozen jobs are growing together.
+	var young []*graph.Edge
 	for e, j := range s.jobs {
-		if j.pgid == 0 || s.killed[e] {
-			continue
-		}
-		if victim == nil || j.start.After(s.jobs[victim].start) {
-			victim = e
+		if j.pgid != 0 && !s.killed[e] {
+			young = append(young, e)
 		}
 	}
-	if victim == nil {
-		return
+	sort.Slice(young, func(i, j int) bool { return s.jobs[young[i]].start.After(s.jobs[young[j]].start) })
+	deficit := s.low - headroom
+	var freed uint64
+	for _, e := range young {
+		if len(s.jobs)-len(s.killed) <= s.minJobs || freed >= deficit {
+			break
+		}
+		rss := uint64(128 << 20) // assume a job has at least this much to give back
+		if cur, ok := s.sampler.Current(s.jobs[e].pgid); ok {
+			rss = max(rss, cur.Peak)
+		}
+		s.killed[e] = true
+		s.b.runner.kill(e)
+		freed += rss
+		s.b.status.Info("memory is short (%s left); stopped %s to run it again later", size(headroom), name(e))
 	}
-	s.killed[victim] = true
 	s.lastKill = time.Now()
-	s.b.runner.kill(victim)
-	s.b.status.Info("memory is short (%s left); stopped %s to run it again later", size(headroom), name(victim))
 }
 
 func (s *memSched) debugf(format string, args ...any) {

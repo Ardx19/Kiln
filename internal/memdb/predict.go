@@ -26,11 +26,15 @@ func (k Kind) String() string { return kindNames[k] }
 const Margin = 1.10
 
 // DefaultPeaks are the estimates for an edge with no history and no
-// similar edge either. They're deliberately generous; a cold build learns
-// real values as it goes.
+// similar edge either. They're deliberately generous, because a first
+// guess that is too low overcommits the machine for the first wave of jobs
+// (measured: RDKit's heaviest compiles need 1.3 GiB, which a 768 MiB guess
+// let twelve at a time start on an 11.7 GiB laptop), while one that is too
+// high only delays the first few jobs: as soon as similar edges finish, the
+// build has learned real values.
 var DefaultPeaks = map[Kind]uint64{
-	Compile: 768 << 20,
-	Link:    1536 << 20,
+	Compile: 1536 << 20,
+	Link:    3072 << 20,
 	Archive: 64 << 20,
 	Codegen: 256 << 20,
 	Other:   256 << 20,

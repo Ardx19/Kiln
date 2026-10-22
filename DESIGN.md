@@ -51,7 +51,7 @@ Premise, measured on RDKit: an edge's peak memory is stable from run to run (wit
 - **History and prediction.** `.kiln/mem.log` keeps a guarded maximum per output: a bigger run raises the estimate at once, a smaller one lowers it by a quarter of the gap, and only if a backend ran (so a ccache hit can't erase what a compile needs). With no history, an edge is predicted from the same rule in the same directory, the same rule, the same kind of command, then a default.
 - **Admission** is a pure function (`internal/sched`) tested with a simulated clock: an edge starts if a slot is free and the predicted total fits the budget; `--min-jobs` always run; an edge bigger than the whole budget runs alone; smaller edges may backfill past a blocked one until it has waited 10 s, then it holds a reservation and takes the next free slot, so nothing starves.
 - **Budget.** 90% of the tighter of the host's `MemAvailable` and the cgroup's limit minus its working set. Containers report the host's memory in `/proc/meminfo`, so the cgroup (v1 or v2) is read as well.
-- **Brake.** Below a low watermark, or while swapping heavily, nothing new starts. Below a critical one, the youngest job's process group is stopped and it runs again later with a raised estimate. A job the kernel OOM-killed is retried once at 1.5 times its peak.
+- **Brake.** Below a low watermark, or while swapping heavily, nothing new starts. Below a critical one, the youngest jobs' process groups are stopped (as many as it takes to win back the low watermark) and they run again later with raised estimates. A job the kernel OOM-killed is retried once at 1.5 times its peak.
 
 ## Detached builds
 

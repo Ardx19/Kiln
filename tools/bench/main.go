@@ -188,7 +188,7 @@ loop:
 			peak = max(peak, used(m))
 			if m.Headroom() < guard && !aborted {
 				aborted = true
-				syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				killTree(cmd.Process.Pid)
 			}
 		}
 	}
@@ -203,6 +203,43 @@ loop:
 		res.Exit = 1
 	}
 	return res
+}
+
+// killTree kills root and everything it started, however the descendants
+// regrouped themselves: ninja runs each job in its own process group, so
+// killing ninja's group would leave the compilers running.
+func killTree(root int) {
+	for range 3 { // a few passes, in case something forks meanwhile
+		parent := map[int]int{}
+		ents, _ := os.ReadDir("/proc")
+		for _, e := range ents {
+			var pid int
+			if _, err := fmt.Sscanf(e.Name(), "%d", &pid); err != nil {
+				continue
+			}
+			b, err := os.ReadFile("/proc/" + e.Name() + "/stat")
+			if err != nil {
+				continue
+			}
+			rest := string(b[strings.LastIndexByte(string(b), ')')+1:])
+			var state string
+			var ppid int
+			if _, err := fmt.Sscanf(rest, " %s %d", &state, &ppid); err == nil {
+				parent[pid] = ppid
+			}
+		}
+		victims := []int{root}
+		for i := 0; i < len(victims); i++ {
+			for pid, pp := range parent {
+				if pp == victims[i] {
+					victims = append(victims, pid)
+				}
+			}
+		}
+		for _, pid := range victims {
+			syscall.Kill(pid, syscall.SIGKILL)
+		}
+	}
 }
 
 // Table renders results as a Markdown table.
