@@ -487,7 +487,7 @@ The finish line is **v0.3** (M1–M8). M9 stays a prioritized backlog.
 - [x] **Simulation suite.** The admission policy is a pure function, tested with a simulated clock and synthetic job profiles. It never exceeds the budget by prediction, bounds starvation, respects `--min-jobs` and `-j`, and runs oversized jobs alone.
 - [x] **Container test, no flags.** Inside `docker run --memory=2g`, kiln finds the 2 GiB limit by itself and completes the memhog fixture (jobs that touch N MiB for T seconds), with measured peak below the limit. `ninja -j8` gets OOM-killed.
 - [x] Sampler overhead is under 1% of one core with 14 concurrent jobs.
-- [ ] **Headline**, on two machine profiles: the WSL laptop and a small-runner container (for example 4 CPUs and 8 GiB).
+- [ ] **Headline**, on two machine profiles *(shown for RDKit's 12 heaviest compiles on both profiles, with zero kills and the learned run faster than the best hand-tuned setting tried; LLVM and the cold full builds are still to run, see docs/benchmarks.md)*: the WSL laptop and a small-runner container (for example 4 CPUs and 8 GiB).
   - At default settings, RDKit (compile-heavy) and LLVM (link-heavy) see **zero OOM kills** on both the first run and the learned run.
   - The learned run is no slower than the best hand-tuned setting (`-jN`, or `LLVM_PARALLEL_LINK_JOBS` for LLVM).
 

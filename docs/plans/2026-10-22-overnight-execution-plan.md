@@ -101,23 +101,13 @@ Order is by value; each step ends with a commit and push.
 
 **On resuming:** run `git log --oneline -8` and `git status`, then `go build ./...`, `make lint test` and the short compat suite, and fix anything red before going on. Then continue with the next unchecked item below. Commit and push each finished piece (no Claude attribution, no Co-Authored-By line). Long jobs run in the background with monitors. The user's RDKit trees only get `-n` dry runs. Keep this file's progress log and the memory note `kiln-roadmap-progress` current.
 
-**State at 02:20 IST:**
-- Committed and pushed: `8a95d29` (M2 drop-in; M3 core).
-- **Uncommitted, tested, ready to commit as "M3: memory-aware scheduling"** once the full compat suite passes:
-  - `tests/compat/mem_test.go` (`TestMemBudget`, `TestMemBrake`, `TestMemOOMRetry`, `TestMemContainer`)
-  - the `KILN_TEST_MEMORY` hook in `internal/sysinfo/memory.go`
-  - Makefile `mem-container` and the CI job `mem-container`
-  - docs: `docs/ninja-quirks.md`, `docs/development.md`, `docs/problems/oom.md`, the plan's M3 section
-  - `docs/plans/2026-10-22-overnight-execution-plan.md` (this file)
-- Verified so far: `make lint test` green, short compat green, the four memory tests pass (the container test ran in `docker --memory=2g`).
-- **In flight:** the full compat suite (`KILN_TREES` = the 11 RDKit trees, dry runs). Output: `/tmp/claude-1000/-home-aryandutt-home-Aryan-kiln/430204ed-e8d9-479d-a83d-a670a50e65bb/scratchpad/compat-m3.out`; it ends with a line `exit=N`. If that file is gone, rerun: `KILN_TREES=$(find ~/home/BTP/RDkit -maxdepth 3 -name build.ninja -printf '%h\n' | sort | paste -sd:) go test -tags compat -count=1 -timeout 90m -parallel 4 ./tests/compat`.
-- **Phase A queue** (detached, `scratchpad/phaseA.sh`): DuckDB done (kiln's tree passes 7,648 test cases); RDKit's kiln build was running; LLVM next. Progress: `scratchpad/phaseA/progress`. When it ends, compare `rdkit-test-*.xml`, `llvm-ninja.sums` vs `llvm-kiln.sums`, and check DuckDB's two always-dirty edges (`.cache/clangd`, `repository`) against Ninja's own tree; then tick M1's "full builds" item and commit.
+**State (after the overnight run, 2026-10-22 morning):** M0-M8 are built, tested, committed and pushed, and CI is green. See the progress log below and `docs/plans/2026-10-21-feat-kiln-build-runner-plan.md` for each milestone's checklist.
 
-**Next, in order:**
-1. Commit M3 (above). Check the GitHub Actions run after pushing.
-2. Close Phase A (above).
-3. **M4 detached runs.** Design: `internal/run` with `.kiln/lock` (flock, fail fast naming the running build), `.kiln/runs/<id>/{status.json,output.log,failures/}`, `runs/latest`, keep 20; status.json is written atomically about once a second from the build loop (an Observer hook on the Builder, with a 1 s ticker so it never goes stale), fields: state, pid and process start ticks, targets, done/total, running jobs with RSS, budget/reserved, failures, exit code. `kiln build --detach` re-execs a hidden `kiln __daemon` with Setsid, stdin from /dev/null, output to `output.log`, with a handshake (parent waits for state running or finished; a manifest error is relayed with its exit code). Commands: `status [--json]` (running = lock held; finished = exit code; died = status says running but lock free), `wait [--timeout]` (exits with the build's code), `log [-f] [--failures]`, `stop` (SIGTERM after checking the pid's start ticks). `-n` takes no lock. `KILN_NO_LOCK=1` skips it. Tests in `tests/compat/detach_test.go`: SIGHUP to the session, `kill -9` leads to *died* and the next build runs, `log -f` returns at the end, `wait` exit codes, `stop` cleans up, a schema test for `status --json`.
-4. Not for tonight: M5 (benchmarks, v0.1.0 tag), M6-M8.
+**Still open, all needing the user or hours of idle machine:**
+1. The full benchmark tables for M5: cold builds of RDKit, LLVM and DuckDB on the laptop and in a container, with the best hand-tuned Ninja per project. `tools/bench`, `bench/rdkit-heavy.sh` and `docs/benchmarks.md` have the tooling and what has been measured so far (a subset of RDKit on two profiles).
+2. Tagging `v0.1.0`, which publishes binaries through `.github/workflows/release.yml`. Held back until the tables above exist.
+3. The manual WSL check for detached builds (`docs/problems/detached.md`).
+4. M9 is a backlog.
 
 ## Progress log (continued)
 
