@@ -1,0 +1,12 @@
+test/common/CMakeFiles/test_common.dir/ub_test_common.cpp.o
+src/execution/expression_executor/CMakeFiles/duckdb_expression_executor.dir/ub_duckdb_expression_executor.cpp.o
+test/api/capi/v2/CMakeFiles/test_sql_capi_v2.dir/ub_test_sql_capi_v2.cpp.o
+src/optimizer/CMakeFiles/duckdb_optimizer.dir/ub_duckdb_optimizer.cpp.o
+extension/core_functions/aggregate/distributive/CMakeFiles/duckdb_core_functions_distributive.dir/ub_duckdb_core_functions_distributive.cpp.o
+src/function/scalar/operator/CMakeFiles/duckdb_func_ops_main.dir/ub_duckdb_func_ops_main.cpp.o
+src/parser/peg/transformer/CMakeFiles/duckdb_parser_peg_transformer.dir/ub_duckdb_parser_peg_transformer.cpp.o
+src/function/cast/CMakeFiles/duckdb_func_cast.dir/ub_duckdb_func_cast.cpp.o
+src/common/CMakeFiles/duckdb_common.dir/ub_duckdb_common.cpp.o
+extension/core_functions/scalar/date/CMakeFiles/duckdb_core_functions_date.dir/ub_duckdb_core_functions_date.cpp.o
+test/api/capi/v1/CMakeFiles/test_sql_capi_v1.dir/ub_test_sql_capi_v1.cpp.o
+src/main/CMakeFiles/duckdb_main.dir/ub_duckdb_main.cpp.o
