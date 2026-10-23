@@ -1,6 +1,6 @@
 # Benchmarks
 
-This page says how to reproduce kiln's benchmark tables and records what has been measured. **The full headline runs (cold builds of RDKit, LLVM and DuckDB, on a laptop and in a small container) have not been run**: they take hours each and want an otherwise idle machine. What has been run is the heaviest compiles of each project, three times per setting: RDKit on both profiles, LLVM on the laptop and DuckDB in the container. In short: Ninja's default failed, or was stopped by the guard, every time on all four. kiln with no flags (as of `e0c8f40`, which these benchmarks led to) finished every run with no OOM kill, and its median against the best hand-tuned `-j` ranges from about 10% faster (RDKit on the laptop) through a tie (RDKit in the container) to 7-9% slower (DuckDB, LLVM).
+This page says how to reproduce kiln's benchmark tables and records what has been measured. Two kinds of runs are recorded. **Cold full builds** (one run per setting) of RDKit on a laptop and in a small container, and of DuckDB in the container: Ninja's default fails or is stopped by the memory guard every time, and kiln with no flags finishes every time. Against the best hand-tuned `-j` it is 7-9% faster on the RDKit laptop build, level on DuckDB (within 2%), and 12-15% slower on the RDKit container build. **Heaviest compiles** of each project (three runs per setting, including LLVM on the laptop) show the same safety result and speeds from about 10% faster to 9% slower. Cold full builds of LLVM, LLVM in the container and DuckDB on the laptop have not been run.
 
 ## Measured so far
 
@@ -58,7 +58,7 @@ How it got there, because the first attempt was worse: my first laptop run had k
 Limits, stated plainly:
 - **The kiln rows were rerun after the scheduler change** (`e0c8f40`), hours after the Ninja rows, not interleaved with them; the laptop's speed drifted by up to 58% within this session (the slow spell above).
 - **Three runs per row**, on one machine (a Ryzen 5 5500U laptop) and one project. Default Ninja's rows are single runs, made earlier, since repeating a known failure costs 18 minutes in the container. With three runs, a difference of a few percent is within the noise; the ranges show how much. "Best hand-tuned" is the best of the values swept: `-j5` to `-j7` on the laptop, `-j3` to `-j5` in the container.
-- **Subsets, not cold full builds.** Each project's heaviest compiles, chosen from its build log; full builds of RDKit, LLVM and DuckDB are still to be run, as are LLVM in the container and DuckDB on the laptop.
+- **Subsets here; the cold full builds are in the next section.** Each project's heaviest compiles, chosen from its build log. Not run: cold full builds of LLVM, LLVM in the container, DuckDB on the laptop.
 - **Ordering and page cache.** The page cache can't be dropped without root, so runs after the first in a chunk find the sources and headers cached. The rotation gives every runner each position once over three rounds.
 - **Peak memory** is the system's (laptop) or the container's working set (container), sampled twice a second, and includes file cache the compiles read. The learned laptop runs used more memory than the hand-tuned ones (9.1 against 8.3 GiB) because they keep more jobs running; the guard never fired.
 - ccache was disabled. Raw numbers, one JSON line per run with its start time: `bench/results/rdkit-12-heaviest.jsonl`. Reproduce with `bench/heavy.sh rdkit laptop` or `bench/heavy.sh rdkit container` (below).
@@ -104,6 +104,28 @@ Command: `bench/heavy.sh duckdb container -tuned 3,4,5 -cap 10m`, 17:36–19:04 
 What this shows: here only one of the four Ninja settings tried finishes at all, and kiln with no flags never ran out of memory. But it is a little slower than that one setting: 360 s first and 363 s learned against 338 s, about 7%. Its first run used to be much slower (522 s). `-d sched` showed why: CMake gives every DuckDB target its own compile rule, so a unit with no history was predicted from all compiles seen so far, at their maximum; once the 2.8 GiB `test_common` finished, every other unit was predicted at 3 GiB and they ran one at a time. Since `e0c8f40` that kind-wide guess is the median, while edges of the same rule keep the cautious 90th percentile. The claim this supports is safety, not speed: kiln is the only no-flags runner that finishes, within 10% of the best hand-tuned `-j`.
 
 The image needed ccache: DuckDB's build runs every compile through `/usr/bin/ccache` (with `CCACHE_DISABLE=1` it calls the compiler straight through). Without it the first attempt failed at once; those runs were not results and were dropped, and the bench tool now refuses to record a run that fails within 5 s.
+
+## Cold full builds (2026-10-23)
+
+The whole default target (`all`: libraries, Python modules and test binaries, ccache off) from clean, **one run per setting**. The hand-tuned `-j` is the best value found in the heaviest-compiles runs above, not swept again. Ninja's default runs under a cap; if it fails or the guard stops it, that is its result.
+
+| Build | Ninja default | Ninja, hand-tuned | kiln, first run | kiln, learned run |
+|---|---|---|---|---|
+| RDKit, laptop (12 threads, 11.7 GiB) | stopped by the guard at 27 min (11.1 GiB) | `-j7`: 2,073 s (34.6 min) | 1,924 s (**7% faster**) | 1,887 s (**9% faster**) |
+| RDKit, container (4 CPUs, 6 GiB) | stopped at 48 min: 6 GiB limit, one OOM kill | `-j4`: 2,625 s (43.8 min) | 2,944 s (12% slower) | 3,028 s (15% slower) |
+| DuckDB, container (4 CPUs, 6 GiB) | stopped at 2 min: 6 GiB limit | `-j3`: 1,718 s (28.6 min) | 1,753 s (2% slower) | 1,695 s (1% faster) |
+
+No run, kiln's or hand-tuned, had an OOM kill; the guard and the default runs are the only failures. Peak memory: RDKit laptop 7.6 / 8.4 / 9.1 GiB (hand-tuned / kiln first / learned), RDKit container 4.7 / 4.6 / 4.6 GiB, DuckDB container 4.5 / 5.0 / 4.7 GiB.
+
+Commands: `bench/heavy.sh rdkit-full laptop -tuned 7 -rounds 1 -budget 0 -series full -cap 90m`, `bench/heavy.sh rdkit-full container -tuned 4 ... -cap 2h`, `bench/heavy.sh duckdb-full container -tuned 3 ... -cap 3h`. Run 18:55 to 02:44 IST on 23-24 October; raw rows in `bench/results/rdkit-full.jsonl` and `bench/results/duckdb-full.jsonl`.
+
+What this shows: the safety result holds for whole builds, not only for their heaviest compiles. Where Ninja needs a hand-picked `-j` to finish at all (both containers), kiln finishes without one. On speed it depends: kiln beats the best hand-tuned Ninja on the laptop, ties it on DuckDB, and is slower on RDKit in the container. The 12-15% there is more than the 5-10% run-to-run spread seen in the repeated heaviest-compiles runs, but with one run per setting it is not established, and I did not investigate it. A learned run was not faster than a first run in the container (3,028 against 2,944 s), so there the history did not help; on the laptop it helped by 2%.
+
+Limits specific to these runs:
+- **One run per setting, so no ranges.** The comparisons above are single measurements.
+- **The `-j` values were not swept on the full builds.** A `-j` that is best for the heaviest compiles may not be best for a whole build; I did not test that.
+- **Three setup problems were found by the runs and fixed**, each by a run failing at once or at the end, and those attempts are not in the tables: DuckDB's build runs a Python from `~/.local` (mounted into the container now), RDKit's ChemDraw links expat and freetype (added to the image), and the first full DuckDB `-j3` build was lost to the first of these after 27 minutes.
+- Not done: cold full builds of LLVM (estimated at 10 hours or more on the laptop, not measured), LLVM in the container, DuckDB on the laptop.
 
 ## Reproducing the memory benchmark
 

@@ -139,6 +139,12 @@ Times are the real commit times (IST).
 
 **Open after this:** cold full builds; LLVM in the container and DuckDB on the laptop; the kiln reruns were not interleaved with the Ninja rows; tagging v0.1.0 (held).
 
+### 2026-10-23/24 night: cold full builds (one run per setting)
+
+- **18:55-02:44** `bench/heavy.sh rdkit-full|duckdb-full` (`2d48b6c`). Three setup problems surfaced and were fixed, none recorded as results: DuckDB's build runs a uv Python from `~/.local` (mounted in the container, `030e411`), and RDKit's ChemDraw needs expat and freetype (added to the image, `42fe140`); bench refused to record the failed-at-once run.
+- **Results:** RDKit laptop `-j7` 2,073 s vs kiln 1,924 / 1,887 s; RDKit container `-j4` 2,625 s vs kiln 2,944 / 3,028 s (slower, not investigated); DuckDB container `-j3` 1,718 s vs kiln 1,753 / 1,695 s. Ninja's default failed or was stopped everywhere.
+- **Not done:** LLVM full builds, LLVM in the container, DuckDB on the laptop, the `v0.1.0` tag.
+
 ## Remote benchmark server (kiln-bench)
 
 Added 2026-10-22. SSH alias `kiln-bench` (key `~/.ssh/kiln_bench`, user `swarnavas`; 32 cores, 251 GiB RAM, shared machine). **Strict boundary: everything lives under one directory and nothing outside it is touched.**

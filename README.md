@@ -6,7 +6,7 @@ kiln runs the `build.ninja` files that CMake, Meson and other generators already
 
 It is aimed at big C and C++ trees on small machines: a laptop, several git worktrees, a CI runner with a tight memory limit. Linux only (including WSL and containers).
 
-> **Status: feature-complete for v0.3, not yet released.** Everything below is implemented and tested against real Ninja (1.10.1, 1.11.1, 1.12.1 and 1.13.2) on generated projects and on real ones: fmt, GLib, protobuf, DuckDB, RDKit, LLVM and the C++20 modules sample. The benchmark tables are still to be measured (see [Benchmarks](#benchmarks)).
+> **Status: feature-complete for v0.3, not yet released.** Everything below is implemented and tested against real Ninja (1.10.1, 1.11.1, 1.12.1 and 1.13.2) on generated projects and on real ones: fmt, GLib, protobuf, DuckDB, RDKit, LLVM and the C++20 modules sample. Benchmarks of full builds and of the heaviest compiles of RDKit, LLVM and DuckDB are in [Benchmarks](#benchmarks) (LLVM's full build is not done).
 
 ## Why
 
@@ -86,9 +86,12 @@ Measured so far (WSL2, 12 threads, 11.7 GiB RAM):
 | The same compiles on a 12-thread, 11.7 GiB laptop (medians of 3 runs) | default `-j14` would run out of memory (a guard stops it); best hand-tuned `-j7` takes 143 s | 133 s on the first run, **128 s** once it has learned, no flags |
 | LLVM's 7 heaviest compiles, same laptop (medians of 3 runs) | default `-j14` would run out of memory (a guard stops it); best hand-tuned `-j4` takes 142 s | finishes every time: 164 s on the first run, 155 s once it has learned (9% slower than `-j4`), no flags |
 | DuckDB's 12 heaviest compiles, 4 CPUs and 6 GiB container (medians of 3 runs) | default `-j6`, `-j4` and `-j5` all fail (OOM kills); `-j3` takes 338 s | finishes every time: 360 s on the first run, 363 s once it has learned (7% slower than `-j3`), no flags |
+| RDKit, whole cold build, laptop (one run) | default stopped by the memory guard at 27 min; best hand-tuned `-j7` takes 2,073 s | 1,924 s on the first run, **1,887 s** once it has learned (9% faster), no flags |
+| RDKit, whole cold build, 4 CPUs and 6 GiB container (one run) | default fails (OOM kill after 48 min); best hand-tuned `-j4` takes 2,625 s | 2,944 s on the first run, 3,028 s once it has learned (12-15% slower), no flags |
+| DuckDB, whole cold build, same container (one run) | default fails at 6 GiB after 2 min; `-j3` takes 1,718 s | 1,753 s on the first run, 1,695 s once it has learned (within 2%), no flags |
 | Second checkout of a project, compiler cache hits | 0 of 23 with plain ccache | 23 of 23 with kiln's settings |
 
-The RDKit, LLVM and DuckDB rows are medians of three runs on one machine, with kiln as of `e0c8f40`. Ninja's default failed (or was stopped by a guard) every time; kiln with no flags finished every run, from about 10% faster than the best hand-tuned `-j` (RDKit, laptop) to 9% slower (LLVM). [docs/benchmarks.md](docs/benchmarks.md) has the details, the limits and how to reproduce them. The full tables (cold builds of RDKit, LLVM and DuckDB on a laptop and in a small container) are still to be run; see the plan in [docs/plans/](docs/plans/).
+The heaviest-compiles rows are medians of three runs and the whole-build rows are single runs, all on one machine, with kiln as of `e0c8f40`. Ninja's default failed (or was stopped by a guard) every time; kiln with no flags finished every run, from 10% faster than the best hand-tuned `-j` (RDKit laptop, compiles only) to 15% slower (RDKit in the container, whole build). [docs/benchmarks.md](docs/benchmarks.md) has the details, the limits and how to reproduce them. Cold full builds of LLVM are not done.
 
 ## Documentation
 

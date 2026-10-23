@@ -2,3 +2,7 @@
 {"project":"rdkit-full","profile":"laptop-12threads-11.7g","series":"full","round":1,"runner":"ninja-tuned","exit":0,"wall_s":2073.48285898,"peak_mib":7780.4140625,"oom_kills":0,"jobs":7,"start":"2026-10-23T21:33:14+05:30"}
 {"project":"rdkit-full","profile":"laptop-12threads-11.7g","series":"full","round":1,"runner":"kiln-first","exit":0,"wall_s":1924.381441351,"peak_mib":8634.04296875,"oom_kills":0,"start":"2026-10-23T22:10:44+05:30"}
 {"project":"rdkit-full","profile":"laptop-12threads-11.7g","series":"full","round":1,"runner":"kiln-learned","exit":0,"wall_s":1887.338462056,"peak_mib":9310.25,"oom_kills":0,"start":"2026-10-23T22:45:16+05:30"}
+{"project":"rdkit-full","profile":"container-4cpu-6g","series":"full","round":1,"runner":"ninja-default","exit":-1,"aborted":true,"wall_s":2892.108123197,"peak_mib":6143.94921875,"oom_kills":1,"start":"2026-10-23T17:51:48Z"}
+{"project":"rdkit-full","profile":"container-4cpu-6g","series":"full","round":1,"runner":"ninja-tuned","exit":0,"wall_s":2624.768691534,"peak_mib":4767.53515625,"oom_kills":0,"jobs":4,"start":"2026-10-23T18:43:58Z"}
+{"project":"rdkit-full","profile":"container-4cpu-6g","series":"full","round":1,"runner":"kiln-first","exit":0,"wall_s":2944.237072936,"peak_mib":4751.52734375,"oom_kills":0,"start":"2026-10-23T19:30:53Z"}
+{"project":"rdkit-full","profile":"container-4cpu-6g","series":"full","round":1,"runner":"kiln-learned","exit":0,"wall_s":3028.27309386,"peak_mib":4714.5859375,"oom_kills":0,"start":"2026-10-23T20:23:42Z"}
