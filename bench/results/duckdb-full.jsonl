@@ -1,0 +1,1 @@
+{"project":"duckdb-full","profile":"container-4cpu-6g","series":"full","round":1,"runner":"ninja-default","exit":-1,"aborted":true,"wall_s":130.015084306,"peak_mib":6143.015625,"oom_kills":0,"start":"2026-10-23T13:25:31Z"}

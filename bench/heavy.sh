@@ -20,6 +20,8 @@
 # Needs: the corpus tree (corpus/corpus.sh all PROJECT; RDKit with
 # RDKIT_CMAKE_ARGS from the conda env), Go, and for the container profile
 # the kiln-bench image (docker build -f bench/Dockerfile -t kiln-bench bench).
+# The container gets $HOME/.local read-only, at the same path: DuckDB's full
+# build runs a uv-installed Python from there in its last steps.
 set -eu
 usage="usage: bench/heavy.sh rdkit|llvm|duckdb|rdkit-full|duckdb-full laptop|container [flags...]"
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -56,5 +58,5 @@ fi
 conda=${CONDA_ENV_ROOT:-$HOME/miniconda3}
 exec docker run --rm --user "$(id -u):$(id -g)" --cpus=4 --memory=6g --memory-swap=6g \
 	-e HOME=/tmp -e CCACHE_DISABLE=1 \
-	-v "$root:$root" -v "$conda:$conda:ro" -w "$root" kiln-bench \
+	-v "$root:$root" -v "$conda:$conda:ro" -v "$HOME/.local:$HOME/.local:ro" -w "$root" kiln-bench \
 	.work/bench "$@"
