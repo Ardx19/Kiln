@@ -1,0 +1,4 @@
+{"project":"rdkit-full","profile":"laptop-12threads-11.7g","series":"full","round":1,"runner":"ninja-default","exit":-1,"aborted":true,"wall_s":1649.716120346,"peak_mib":11368.140625,"oom_kills":0,"start":"2026-10-23T21:03:24+05:30"}
+{"project":"rdkit-full","profile":"laptop-12threads-11.7g","series":"full","round":1,"runner":"ninja-tuned","exit":0,"wall_s":2073.48285898,"peak_mib":7780.4140625,"oom_kills":0,"jobs":7,"start":"2026-10-23T21:33:14+05:30"}
+{"project":"rdkit-full","profile":"laptop-12threads-11.7g","series":"full","round":1,"runner":"kiln-first","exit":0,"wall_s":1924.381441351,"peak_mib":8634.04296875,"oom_kills":0,"start":"2026-10-23T22:10:44+05:30"}
+{"project":"rdkit-full","profile":"laptop-12threads-11.7g","series":"full","round":1,"runner":"kiln-learned","exit":0,"wall_s":1887.338462056,"peak_mib":9310.25,"oom_kills":0,"start":"2026-10-23T22:45:16+05:30"}
