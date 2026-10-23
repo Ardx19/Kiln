@@ -6,8 +6,9 @@
 #
 #   bench/heavy.sh PROJECT PROFILE [tools/bench flags...]
 #
-#   PROJECT  rdkit, llvm or duckdb: its corpus tree and the targets in
-#            bench/PROJECT-heavy-targets.txt
+#   PROJECT  rdkit, llvm, duckdb (heaviest compiles) or rdkit-full,
+#            duckdb-full (the whole build, cold): its corpus tree and the targets in
+#            bench/NAME-targets.txt
 #   PROFILE  laptop     this machine; a run is stopped when under 600 MiB remain
 #            container  the kiln-bench image with 4 CPUs and 6 GiB, no swap
 #
@@ -20,7 +21,7 @@
 # RDKIT_CMAKE_ARGS from the conda env), Go, and for the container profile
 # the kiln-bench image (docker build -f bench/Dockerfile -t kiln-bench bench).
 set -eu
-usage="usage: bench/heavy.sh rdkit|llvm|duckdb laptop|container [flags...]"
+usage="usage: bench/heavy.sh rdkit|llvm|duckdb|rdkit-full|duckdb-full laptop|container [flags...]"
 root=$(cd "$(dirname "$0")/.." && pwd)
 [ $# -ge 2 ] || { echo "$usage" >&2; exit 2; }
 project=$1 profile=$2
@@ -29,6 +30,8 @@ case $project in
 rdkit) dir=.work/corpus/rdkit/build-kiln name=rdkit-12-heaviest ;;
 llvm) dir=.work/corpus/llvm/build name=llvm-heaviest ;;
 duckdb) dir=.work/corpus/duckdb/build name=duckdb-12-heaviest ;;
+rdkit-full) dir=.work/corpus/rdkit/build-kiln name=rdkit-full ;;
+duckdb-full) dir=.work/corpus/duckdb/build name=duckdb-full ;;
 *) echo "$usage" >&2; exit 2 ;;
 esac
 case $profile in
@@ -45,8 +48,8 @@ mkdir -p bench/results
 go build -o .work/bench ./tools/bench
 go build -o .work/kiln ./cmd/kiln
 set -- -dir "$dir" -ninja "$root/.tools/ninja/1.13.2/ninja" -kiln "$root/.work/kiln" \
-	-project "$name" -profile "$pname" -guard "$guard" -out "bench/results/$project-heavy.jsonl" \
-	-rounds 3 -budget 15m -cap 6m -series rounds "$@" $(cat "bench/$project-heavy-targets.txt")
+	-project "$name" -profile "$pname" -guard "$guard" -out "bench/results/$name.jsonl" \
+	-rounds 3 -budget 15m -cap 6m -series rounds "$@" $(cat "bench/$name-targets.txt")
 if [ "$profile" = laptop ] || [ -n "$host" ]; then
 	exec env CCACHE_DISABLE=1 .work/bench "$@"
 fi

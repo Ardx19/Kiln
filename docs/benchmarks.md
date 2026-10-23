@@ -61,7 +61,7 @@ Limits, stated plainly:
 - **Subsets, not cold full builds.** Each project's heaviest compiles, chosen from its build log; full builds of RDKit, LLVM and DuckDB are still to be run, as are LLVM in the container and DuckDB on the laptop.
 - **Ordering and page cache.** The page cache can't be dropped without root, so runs after the first in a chunk find the sources and headers cached. The rotation gives every runner each position once over three rounds.
 - **Peak memory** is the system's (laptop) or the container's working set (container), sampled twice a second, and includes file cache the compiles read. The learned laptop runs used more memory than the hand-tuned ones (9.1 against 8.3 GiB) because they keep more jobs running; the guard never fired.
-- ccache was disabled. Raw numbers, one JSON line per run with its start time: `bench/results/rdkit-heavy.jsonl`. Reproduce with `bench/heavy.sh rdkit laptop` or `bench/heavy.sh rdkit container` (below).
+- ccache was disabled. Raw numbers, one JSON line per run with its start time: `bench/results/rdkit-12-heaviest.jsonl`. Reproduce with `bench/heavy.sh rdkit laptop` or `bench/heavy.sh rdkit container` (below).
 
 ## LLVM's heaviest compiles (2026-10-22)
 
@@ -111,7 +111,7 @@ The image needed ccache: DuckDB's build runs every compile through `/usr/bin/cca
 
 A series repeats every runner `-rounds` times, rotating the order each round so that no runner always goes first. Each row is appended to `-out` when its run ends, and runs already there are skipped, so a series can be stopped and continued; an interrupted run (Ctrl-C) is killed and not recorded. `-budget 15m` runs only the next chunk, the pending runs that earlier runs say will fit in 15 minutes. `-plan` prints the chunks, and `-summary` the median and range over the rounds. Each round's `kiln-first` clears kiln's memory history, and its `kiln-learned` starts from a snapshot of what that run left (kept in `.kiln/bench/`), so splitting a series into chunks doesn't change what kiln learned from.
 
-`bench/heavy.sh PROJECT PROFILE` runs this on a project's heaviest compiles (`bench/PROJECT-heavy-targets.txt`) in kiln's corpus trees:
+`bench/heavy.sh PROJECT PROFILE` runs this on a project's heaviest compiles (`bench/NAME-targets.txt`) in kiln's corpus trees:
 
 ```bash
 bench/heavy.sh rdkit laptop -tuned 5,6,7 -only ninja-tuned,kiln-first,kiln-learned -plan   # the chunks
@@ -120,7 +120,7 @@ bench/heavy.sh rdkit laptop -summary
 bench/heavy.sh rdkit container -tuned 3,4,5 -only ninja-tuned,kiln-first,kiln-learned
 ```
 
-The `laptop` profile runs on the host with a 600 MiB guard. `container` runs in the `kiln-bench` image (`docker build -f bench/Dockerfile -t kiln-bench bench`) with 4 CPUs, 6 GiB and no swap, where a real OOM kill is the result. The defaults are 3 rounds, 15-minute chunks, a 6-minute cap and the series name `rounds`; flags after the profile override them. Rows go to `bench/results/PROJECT-heavy.jsonl`.
+The `laptop` profile runs on the host with a 600 MiB guard. `container` runs in the `kiln-bench` image (`docker build -f bench/Dockerfile -t kiln-bench bench`) with 4 CPUs, 6 GiB and no swap, where a real OOM kill is the result. The defaults are 3 rounds, 15-minute chunks, a 6-minute cap and the series name `rounds`; flags after the profile override them. Rows go to `bench/results/NAME.jsonl`.
 
 For a link-heavy project, build LLVM with `-DLLVM_PARALLEL_LINK_JOBS=N` as the hand-tuned setting (`corpus/corpus.sh` does this through `LLVM_CMAKE_ARGS`); the point of the comparison is that kiln needs no such setting. For DuckDB, add a row for its documented workaround, `GEN= make`.
 
