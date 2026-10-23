@@ -1,1 +1,4 @@
 {"project":"duckdb-full","profile":"container-4cpu-6g","series":"full","round":1,"runner":"ninja-default","exit":-1,"aborted":true,"wall_s":130.015084306,"peak_mib":6143.015625,"oom_kills":0,"start":"2026-10-23T13:25:31Z"}
+{"project":"duckdb-full","profile":"container-4cpu-6g","series":"full","round":1,"runner":"ninja-tuned","exit":0,"wall_s":1718.398969726,"peak_mib":4600.2265625,"oom_kills":0,"jobs":3,"start":"2026-10-23T13:59:06Z"}
+{"project":"duckdb-full","profile":"container-4cpu-6g","series":"full","round":1,"runner":"kiln-first","exit":0,"wall_s":1753.446544453,"peak_mib":5112.32421875,"oom_kills":0,"start":"2026-10-23T14:30:19Z"}
+{"project":"duckdb-full","profile":"container-4cpu-6g","series":"full","round":1,"runner":"kiln-learned","exit":0,"wall_s":1694.886036151,"peak_mib":4822.203125,"oom_kills":0,"start":"2026-10-23T15:02:16Z"}
