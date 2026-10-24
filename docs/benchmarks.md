@@ -129,7 +129,24 @@ Limits specific to these runs:
 
 ## Server profile: a shared 32-thread machine
 
-Cold full builds of DuckDB, LLVM and RDKit on a borrowed server: a Xeon Silver 4314 (16 cores, 32 threads), 251 GiB of RAM, with the trees on an ext4 HDD, shared with other people's work. With this much memory nothing runs out, so these runs compare speed only, on a big machine. Results are not in yet.
+Cold full builds of DuckDB, LLVM and RDKit on a borrowed server: a Xeon Silver 4314 (16 cores, 32 threads), 251 GiB of RAM, with the trees on an ext4 HDD, shared with other people's work. With this much memory nothing runs out, so these runs compare speed only, on a big machine.
+
+Results (2026-10-24, 3 rounds of each setting, every run clean, no OOM kills; medians, with the range in brackets):
+
+| Cold full build | Ninja default (`-j26`) | Ninja `-j20` | Ninja `-j24` | kiln, first run | kiln, learned |
+|---|---|---|---|---|---|
+| DuckDB (699 commands) | 322 s | 335 s | 320 s | **279 s** (279–280) | **280 s** (279–280) |
+| LLVM + clang (4,392) | 1,160 s | 1,228 s | 1,154 s | 1,154 s | 1,153 s |
+| RDKit (1,911) | 489 s | 511 s | 486 s | 486 s | 486 s |
+| Peak memory, DuckDB / LLVM / RDKit | 22 / 26 / 21 GiB | 18 / 20 / 17 GiB | 20 / 24 / 20 GiB | 33 / 39 / 25 GiB | 33 / 39 / 25 GiB |
+
+- kiln with no flags matches the best hand-tuned `-j` on LLVM and RDKit, and is 13% faster on DuckDB.
+- Runs are very steady: each setting's three runs lie within about 1% of one another.
+- kiln's peaks are higher. With plenty of memory it starts DuckDB's and LLVM's big compiles together, where Ninja's order spreads them out. This machine allowed that, but a smaller one would not.
+- The DuckDB gain is consistent, but I have not investigated its cause.
+- Peaks are the summed RSS of each run's own processes (`-peak tree`), an upper bound.
+- Afterwards `ninja -n` finds only always-run edges in each tree (DuckDB's 2, RDKit's `inchi_support`), so kiln left Ninja's state intact.
+- kiln was `a036408`. Raw rows are in `bench/results/server-*.jsonl`.
 
 The runs are meant to go unnoticed by the machine's other users:
 
