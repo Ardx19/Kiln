@@ -378,3 +378,25 @@ func TestServerQueueParses(t *testing.T) {
 		t.Fatalf("bench/server/queue.txt: %d steps, %v; want 11", len(steps), err)
 	}
 }
+
+func TestPauseNeedsNoSettling(t *testing.T) {
+	s, _ := newSup(t, "a | - | true\n")
+	s.lim.settle = time.Hour // were a pause to count as a busy spell, this would hang
+	os.WriteFile(s.path("run", "PAUSE"), nil, 0o644)
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		os.Remove(s.path("run", "PAUSE"))
+	}()
+	done := make(chan int, 1)
+	go func() { done <- s.loop() }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		os.WriteFile(s.path("run", "STOP"), nil, 0o644)
+		<-done
+		t.Fatal("the queue waited to settle after a pause by hand")
+	}
+	if log := s.eventLog(t); !strings.Contains(log, "PAUSE - paused by run/PAUSE") || !strings.Contains(log, "DONE a") {
+		t.Errorf("want a pause, then the step done:\n%s", log)
+	}
+}

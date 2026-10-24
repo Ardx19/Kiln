@@ -316,9 +316,9 @@ func (s *sup) wait() bool {
 		now := time.Now()
 		m := s.sample(now, "waiting", "")
 		kind, why := s.blocked(m)
-		if kind != "" {
+		if kind != "" && kind != "paused" { // a pause by hand needs no settling
 			s.lastBad = now
-		} else if !s.lastBad.IsZero() && now.Sub(s.lastBad) < s.lim.settle {
+		} else if kind == "" && !s.lastBad.IsZero() && now.Sub(s.lastBad) < s.lim.settle {
 			kind, why = "settling", fmt.Sprintf("the machine must stay quiet for %v", s.lim.settle)
 		}
 		if kind == "" {
