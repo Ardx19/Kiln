@@ -338,14 +338,26 @@ func (o options) parallelism() int {
 	if o.jobsSet {
 		return o.jobs // 0 means no limit, as in Ninja
 	}
-	// Ninja's default: two more than the CPUs we may run on.
-	switch n := sysinfo.CPUs(); n {
-	case 0, 1:
+	return defaultJobs(sysinfo.CPULimit())
+}
+
+// defaultJobs is the -j used when none is given. It is Ninja's (two more
+// than the CPUs we may run on), except under a cgroup CPU quota, such as a
+// container's --cpus, where it is the quota: the extra jobs only share the
+// same CPU time, and each compile gets slower. Measured in a 4-CPU
+// container: 24 RDKit compiles took a median 18% longer 6 at a time than 4
+// at a time, and kiln's whole RDKit build at -j6 was 12-15% slower than
+// Ninja's -j4.
+func defaultJobs(cpus int, quota bool) int {
+	switch {
+	case quota:
+		return max(cpus, 1)
+	case cpus <= 1:
 		return 2
-	case 2:
+	case cpus == 2:
 		return 3
 	default:
-		return n + 2
+		return cpus + 2
 	}
 }
 

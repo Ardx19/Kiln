@@ -14,11 +14,19 @@ import (
 // runtime.NumCPU reads), capped by the cgroup's CPU quota rounded down.
 // A quota under one CPU gives 0.
 func CPUs() int {
-	n := runtime.NumCPU()
-	if q := cpuQuota(os.ReadFile); q >= 0 && q < n {
-		return q
-	}
+	n, _ := CPULimit()
 	return n
+}
+
+// CPULimit is CPUs, and also reports whether a cgroup CPU quota set the
+// count (rather than the affinity mask). A quota is a time budget: jobs
+// beyond it don't run on more CPUs, they share the same CPU time.
+func CPULimit() (n int, quota bool) {
+	n = runtime.NumCPU()
+	if q := cpuQuota(os.ReadFile); q >= 0 && q < n {
+		return q, true
+	}
+	return n, false
 }
 
 // cpuQuota returns the cgroup CPU quota in whole CPUs, or -1 if there is

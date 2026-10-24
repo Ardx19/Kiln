@@ -121,3 +121,22 @@ func TestToolFlags(t *testing.T) {
 		t.Errorf("bad = %c", bad)
 	}
 }
+
+func TestDefaultJobs(t *testing.T) {
+	for _, c := range []struct {
+		cpus  int
+		quota bool
+		want  int
+	}{
+		{12, false, 14}, // Ninja's rule: CPUs + 2
+		{2, false, 3},
+		{1, false, 2},
+		{0, false, 2},
+		{4, true, 4}, // a container's --cpus=4: the quota, nothing more
+		{0, true, 1}, // a quota under one CPU still runs one job
+	} {
+		if got := defaultJobs(c.cpus, c.quota); got != c.want {
+			t.Errorf("defaultJobs(%d, quota %v) = %d, want %d", c.cpus, c.quota, got, c.want)
+		}
+	}
+}
