@@ -127,6 +127,24 @@ Limits specific to these runs:
 - **Three setup problems were found by the runs and fixed**, each by a run failing at once or at the end, and those attempts are not in the tables: DuckDB's build runs a Python from `~/.local` (mounted into the container now), RDKit's ChemDraw links expat and freetype (added to the image), and the first full DuckDB `-j3` build was lost to the first of these after 27 minutes.
 - Not done: cold full builds of LLVM (estimated at 10 hours or more on the laptop, not measured), LLVM in the container, DuckDB on the laptop.
 
+## After the scheduler fixes (2026-10-24 night)
+
+Two changes, `0763588` and `c14f5f2`:
+- **Default `-j` under a CPU quota.** It is now the quota, with no + 2.
+- **Reservations over time.** A job with history counts as reaching its peak by a third of its last run and being done by 1.25 times it, and its own estimate gets no 10% margin.
+
+Rerun in the same profiles, interleaved with the best hand-tuned Ninja; medians, with the range in brackets.
+
+| Benchmark | Best Ninja | kiln first run | kiln learned | Before the fixes (first / learned) |
+|---|---|---|---|---|
+| DuckDB's 12 heaviest compiles, 4-CPU / 6 GiB container, 3 rounds | `-j3` 322 s (320–333) | 379 s (373–533) | **300 s** (300–321) | 360 / 363 s vs `-j3` 338 s |
+| RDKit full build, same container, 1 run | `-j4` 2,608 s | **2,562 s** | **2,513 s** | 2,944 / 3,028 s vs 2,625 s |
+| LLVM's 7 heaviest compiles, laptop, 3 rounds | `-j4` 150 s (148–151) | 161 s (161–180) | 155.5 s (149–156) | 164 / 155 s vs 142 s |
+
+- **Learned runs:** kiln is now about 7% faster than the best hand-tuned Ninja on DuckDB's compiles and 4% faster on RDKit's whole build. It is 3% slower on LLVM's compiles, where it was 9% slower before.
+- **First runs:** these have no history, so only the `-j` change applies. That is enough for RDKit in the container. They are still behind on DuckDB's compiles (+18%) and LLVM's (+7%), because the 1.5 GiB first guess is either too high for DuckDB's units or too low for LLVM's 2 GiB ones.
+- **Discarded runs:** the first DuckDB series after the fixes (`kiln-c14f5f2`) ran into a slowdown on the Windows side that capped even Ninja's runs. It was discarded, and the clean series is `kiln-c14f5f2-b`.
+
 ## Server profile: a shared 32-thread machine
 
 Cold full builds of DuckDB, LLVM and RDKit on a borrowed server: a Xeon Silver 4314 (16 cores, 32 threads), 251 GiB of RAM, with the trees on an ext4 HDD, shared with other people's work. With this much memory nothing runs out, so these runs compare speed only, on a big machine.
