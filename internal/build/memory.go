@@ -54,12 +54,31 @@ const (
 	retryFactor = 1.5
 )
 
+// A job whose last run took d is expected to have reached its peak memory
+// by d/3 and to be done by 5d/4; jobs with no history hold their peak
+// throughout. Reserving every job's peak from its start (as kiln did) let
+// far fewer run than fit, because jobs don't reach their peaks together
+// (measured: Ninja -j3 peaked at 4.6 GiB on DuckDB's units, where kiln's
+// reservations allowed two or three in a 5.4 GiB budget). The ramp is
+// steep on purpose: measured alone, DuckDB's two heaviest units reached
+// 25-29% of their peak by a tenth of their run, 51% by a fifth and 66-67%
+// by three tenths, and peaked at 97-99% of it; a straight line to the peak
+// at a third of the run stays above both curves. The quarter of slack at
+// the end allows for a slower run, and the brake stays as the backstop.
+func rampHold(d time.Duration) (ramp, hold time.Duration) {
+	if d <= 0 {
+		return 0, 0
+	}
+	return d / 3, d * 5 / 4
+}
+
 // memJob is a running job.
 type memJob struct {
-	pgid  int // 0 for a console job, which can't be measured
-	need  uint64
-	start time.Time
-	oom   uint64 // the OOM counter when it started
+	pgid       int // 0 for a console job, which can't be measured
+	need       uint64
+	ramp, hold time.Duration // from its history; 0 if it has none
+	start      time.Time
+	oom        uint64 // the OOM counter when it started
 }
 
 // memSched is the scheduler's state for one build.
@@ -214,21 +233,41 @@ func (s *memSched) need(e *graph.Edge) uint64 {
 	return s.pred.Predict(s.describe(e))
 }
 
-// reserved is the memory the running jobs may use: each one's prediction,
-// or what it has used so far if that's more.
-func (s *memSched) reserved() uint64 {
-	var sum uint64
+// load is the memory e is expected to use over time once started. An edge
+// whose estimate was raised (after a stop or an OOM kill) holds it
+// throughout.
+func (s *memSched) load(e *graph.Edge) sched.Load {
+	l := sched.Flat(s.need(e))
+	if _, boosted := s.boost[e]; !boosted {
+		l.Ramp, l.Hold = rampHold(s.pred.Duration(s.describe(e)))
+	}
+	return l
+}
+
+// loads are the running jobs' expected memory from now on: each one's
+// prediction over its expected run, never less than what it has used so
+// far. A job past its expected end is assumed to hold its peak until it
+// ends.
+func (s *memSched) loads(now time.Time) []sched.Load {
+	var ls []sched.Load
 	for _, j := range s.jobs {
-		n := j.need
+		l := sched.Load{Start: j.start.Sub(now), Ramp: j.ramp, Hold: j.hold, Peak: j.need}
+		if j.hold > 0 && now.Sub(j.start) >= j.hold {
+			l.Ramp, l.Hold = 0, 0
+		}
 		if j.pgid != 0 {
 			if cur, ok := s.sampler.Current(j.pgid); ok {
-				n = max(n, cur.Peak)
+				l.Floor = cur.Peak
 			}
 		}
-		sum += n
+		ls = append(ls, l)
 	}
-	return sum
+	return ls
 }
+
+// reserved is the most memory the running jobs are expected to need at
+// any moment from now on.
+func (s *memSched) reserved() uint64 { return sched.Most(s.loads(time.Now())) }
 
 // candidates returns the ready edges memory may hold back, best first:
 // those already held, then more from the plan, up to batchLimit. Phony
@@ -271,14 +310,15 @@ func (s *memSched) admit(slots int) ([]*graph.Edge, error) {
 		return nil, nil
 	}
 	now := time.Now()
-	st := sched.State{Running: len(s.jobs), Reserved: s.reserved(), Budget: s.budget, Slots: slots,
+	st := sched.State{Running: len(s.jobs), Loads: s.loads(now), Budget: s.budget, Slots: slots,
 		MinJobs: s.minJobs, Paused: s.paused, MaxWait: maxWait}
+	reserved := sched.Most(st.Loads)
 	for i, e := range cands {
 		var waiting time.Duration
 		if t, ok := s.heldSince[e]; ok {
 			waiting = now.Sub(t)
 		}
-		st.Ready = append(st.Ready, sched.Candidate{ID: i, Need: s.need(e), Waiting: waiting})
+		st.Ready = append(st.Ready, sched.Candidate{ID: i, Load: s.load(e), Waiting: waiting})
 		if e == s.holder {
 			st.Holder, st.HasHolder = i, true
 		}
@@ -289,12 +329,12 @@ func (s *memSched) admit(slots int) ([]*graph.Edge, error) {
 	for _, i := range res.Start {
 		starting[i] = true
 		edges = append(edges, cands[i])
-		s.debugf("start %s (needs %s; reserved %s of %s)", name(cands[i]), size(st.Ready[i].Need), size(st.Reserved), size(s.budget))
+		s.debugf("start %s (needs %s; reserved %s of %s)", name(cands[i]), size(st.Ready[i].Load.Peak), size(reserved), size(s.budget))
 	}
 	for _, i := range res.Held {
 		if _, ok := s.heldSince[cands[i]]; !ok {
 			s.heldSince[cands[i]] = now
-			s.debugf("hold %s (needs %s; reserved %s of %s)", name(cands[i]), size(st.Ready[i].Need), size(st.Reserved), size(s.budget))
+			s.debugf("hold %s (needs %s; reserved %s of %s)", name(cands[i]), size(st.Ready[i].Load.Peak), size(reserved), size(s.budget))
 		}
 	}
 	old := s.holder
@@ -302,7 +342,7 @@ func (s *memSched) admit(slots int) ([]*graph.Edge, error) {
 	if res.Reservation >= 0 {
 		s.holder = cands[res.Reservation]
 		if s.holder != old {
-			s.debugf("reserve for %s (needs %s)", name(s.holder), size(st.Ready[res.Reservation].Need))
+			s.debugf("reserve for %s (needs %s)", name(s.holder), size(st.Ready[res.Reservation].Load.Peak))
 		}
 	}
 	for i, e := range cands {
@@ -317,7 +357,8 @@ func (s *memSched) admit(slots int) ([]*graph.Edge, error) {
 
 // started records that e is running in process group pgid.
 func (s *memSched) started(e *graph.Edge, pgid int) {
-	s.jobs[e] = &memJob{pgid: pgid, need: s.need(e), start: time.Now(), oom: s.mem.OOMKills}
+	l := s.load(e)
+	s.jobs[e] = &memJob{pgid: pgid, need: l.Peak, ramp: l.Ramp, hold: l.Hold, start: time.Now(), oom: s.mem.OOMKills}
 	if pgid != 0 {
 		s.sampler.Track(pgid)
 	}

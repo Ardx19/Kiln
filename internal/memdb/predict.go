@@ -4,6 +4,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Kind is what an edge's command does, for edges with no history.
@@ -22,7 +23,10 @@ var kindNames = [...]string{"other", "compile", "link", "archive", "codegen"}
 
 func (k Kind) String() string { return kindNames[k] }
 
-// Margin is added to every estimate.
+// Margin is added to an estimate borrowed from similar edges. An edge's
+// own history needs none: its estimate is already the guarded maximum of
+// its runs (see Log.Observe), and adding 10% to it held back jobs that
+// would have fit (measured: DuckDB's units in a 6 GiB container).
 const Margin = 1.10
 
 // DefaultPeaks are the estimates for an edge with no history and no
@@ -115,10 +119,11 @@ func (p *Predictor) add(e Edge, peak uint64) {
 	}
 }
 
-// Predict returns the memory e is expected to need, with the margin.
+// Predict returns the memory e is expected to need: its own estimate, or
+// one borrowed from similar edges with the margin.
 func (p *Predictor) Predict(e Edge) uint64 {
 	if r := p.log.Records[e.Output]; r != nil {
-		return uint64(float64(r.Estimate) * Margin)
+		return r.Estimate
 	}
 	keys := p.keys(e)
 	for _, k := range keys[:2] {
@@ -130,6 +135,15 @@ func (p *Predictor) Predict(e Edge) uint64 {
 		return uint64(float64(g.median()) * Margin)
 	}
 	return DefaultPeaks[Classify(e.Rule, e.Command)]
+}
+
+// Duration is how long e's last full-size run took, or 0 if it has no
+// history of its own.
+func (p *Predictor) Duration(e Edge) time.Duration {
+	if r := p.log.Records[e.Output]; r != nil {
+		return time.Duration(r.DurationMS) * time.Millisecond
+	}
+	return 0
 }
 
 // Observe records a run and teaches the groups.

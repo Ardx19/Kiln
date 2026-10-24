@@ -3,6 +3,7 @@ package memdb
 import (
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 const mib = 1 << 20
@@ -55,8 +56,14 @@ func TestPredict(t *testing.T) {
 	edges := []Edge{cc("lib/a.o"), cc("lib/b.o"), cc("other/c.o")}
 	l.Observe("lib/a.o", 1000*mib, 1000, 1, true)
 	p := NewPredictor(l, edges)
-	if got := p.Predict(cc("lib/a.o")) / mib; got != 1100 {
-		t.Errorf("known output: %d MiB, want the estimate plus 10%%", got)
+	if got := p.Predict(cc("lib/a.o")) / mib; got != 1000 {
+		t.Errorf("known output: %d MiB, want its own estimate, with no margin", got)
+	}
+	if got := p.Duration(cc("lib/a.o")); got != time.Second {
+		t.Errorf("known output's duration: %v, want 1s", got)
+	}
+	if got := p.Duration(cc("lib/new.o")); got != 0 {
+		t.Errorf("an output with no history has duration %v, want 0", got)
 	}
 	if got := p.Predict(cc("lib/new.o")) / mib; got != 1100 {
 		t.Errorf("same rule and dir: %d MiB", got)

@@ -45,7 +45,7 @@ The sampler costs about 0.2% of a core with 14 jobs. Behaviour is checked by a s
 
 1. **The premise holds.** The same edge peaked within 0.4% of itself across runs. Per-output history is a sound basis for prediction, and the planned 10% margin is generous.
 2. **Wrapper overhead is negligible for compiles.** The tree peak exceeds the largest single process by only 2–5 MiB (shell, ccache, g++ driver). Sampling the whole tree still matters for edges that run processes in parallel (LTO, `-pipe`), but `VmHWM` and `wait4` alone would be close here.
-3. **The peak comes at the end.** It arrives at 83–99% of the job's runtime, so kiln has to hold a job's reservation until it exits. Shrinking a reservation early, based on what the job has used so far, would be unsafe.
+3. **The peak comes at the end.** It arrives at 83–99% of the job's runtime, so kiln has to hold a job's reservation until it exits. Shrinking a reservation early, based on what the job has used so far, would be unsafe. (Since 2026-10-24 kiln does use the timing the other way: a job with history is expected to reach its peak by a third of its usual run, and not to need it after 1.25 times that run, so jobs whose peaks won't overlap may run together. See DESIGN.md.)
 4. **The OOM story checks out.** At about 1.3 GiB each, 14 concurrent heavy units need roughly 18 GiB against 11.7 GiB of RAM, while 6 need about 8 GiB. That matches the hand-tuned `-j6`.
 5. **Logged durations depend on load.** Each compile took 54–96 s alone but 158–238 s in the last real build. That's fine for ranking edges by critical path, but those durations can't be read as costs measured on an idle machine.
 
