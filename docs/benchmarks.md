@@ -127,6 +127,23 @@ Limits specific to these runs:
 - **Three setup problems were found by the runs and fixed**, each by a run failing at once or at the end, and those attempts are not in the tables: DuckDB's build runs a Python from `~/.local` (mounted into the container now), RDKit's ChemDraw links expat and freetype (added to the image), and the first full DuckDB `-j3` build was lost to the first of these after 27 minutes.
 - Not done: cold full builds of LLVM (estimated at 10 hours or more on the laptop, not measured), LLVM in the container, DuckDB on the laptop.
 
+## Server profile: a shared 32-thread machine
+
+Cold full builds of DuckDB, LLVM and RDKit on a borrowed server: a Xeon Silver 4314 (16 cores, 32 threads), 251 GiB of RAM, with the trees on an ext4 HDD, shared with other people's work. With this much memory nothing runs out, so these runs compare speed only, on a big machine. Results are not in yet.
+
+The runs are meant to go unnoticed by the machine's other users:
+
+- **CPUs.** Every process is pinned to 24 CPUs, 12 cores with both of their threads (`taskset -c 0-11,16-27`). The other 4 cores are never used. Everything runs at `nice 19`. Under this mask Ninja's and kiln's default `-j` is 26.
+- **A supervisor.** `tools/benchq` runs the queue in `bench/server/queue.txt` one step at a time, as the leader of its own session, and refuses to start without the mask and the priority. Its watchdog stops the running step, which records nothing and runs again later, in these cases:
+  - less than 64 GiB of memory is available
+  - the 8 CPUs left to others stay over 85% busy for 15 minutes
+  - less than 200 GiB of disk is free
+
+  It also holds the next step while I/O pressure is high, fails a step whose own processes pass 96 GiB, raises an alert when a build stops making progress, and kills anything a step leaves behind.
+- **Everything in one directory,** with a conda env for RDKit's Boost and Python, the pinned Ninja 1.13.2 and CMake 4.4.4 from `scripts/tools.sh`, and caches redirected there.
+
+To run it, on the server: `bench/server/start.sh` starts the supervisor detached, `bench/server/stop.sh` stops it, and `benchq -root ROOT status` shows where it is. On the laptop, `bench/server/watch.sh` waits for the next event that needs attention. `bench/heavy.sh PROJECT server` takes `KILN_CORPUS`, `KILN_BIN` (a pinned kiln) and `KILN_RESULTS`. Its peak memory is the run's own process tree (`-peak tree`), not the whole machine's.
+
 ## Reproducing the memory benchmark
 
 `tools/bench` runs one set of targets from clean with these runners: `ninja-default` (Ninja at its default `-j`), `ninja-tuned` (`-jN` for each hand-tuned value in `-tuned`), `kiln-first` (an empty memory history) and `kiln-learned` (the history its `kiln-first` left). It records wall time, the system's peak memory use, and OOM kills. A watchdog kills a run that leaves less than `-guard` MiB, so an unthrottled Ninja can't take the machine down (the run is reported as aborted), and `-cap` kills a run that takes too long. Both kill the run's whole process tree.

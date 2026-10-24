@@ -1,0 +1,19 @@
+# The server benchmark queue, copied to $ROOT/run/queue.txt and run by
+# tools/benchq (bench/server/start.sh). A step per line:
+#
+#   NAME | WATCH-DIR | COMMAND
+#
+# bench steps add one round each: recorded runs are skipped. Caps start
+# at about 5x the expected build; after each warm-up they are set to
+# about 3x its measured time. DuckDB's warm-up ran before the queue.
+duckdb-r1    | duckdb/build     | bench/heavy.sh duckdb-full server -rounds 1 -cap 30m
+llvm-warmup  | llvm/build       | bench/server/warmup.sh llvm/build 3h
+llvm-r1      | llvm/build       | bench/heavy.sh llvm-full server -rounds 1 -cap 3h
+rdkit-warmup | rdkit/build-kiln | bench/server/warmup.sh rdkit/build-kiln 1h
+rdkit-r1     | rdkit/build-kiln | bench/heavy.sh rdkit-full server -rounds 1 -cap 1h
+duckdb-r2    | duckdb/build     | bench/heavy.sh duckdb-full server -rounds 2 -cap 30m
+llvm-r2      | llvm/build       | bench/heavy.sh llvm-full server -rounds 2 -cap 3h
+rdkit-r2     | rdkit/build-kiln | bench/heavy.sh rdkit-full server -rounds 2 -cap 1h
+duckdb-r3    | duckdb/build     | bench/heavy.sh duckdb-full server -rounds 3 -cap 30m
+llvm-r3      | llvm/build       | bench/heavy.sh llvm-full server -rounds 3 -cap 3h
+rdkit-r3     | rdkit/build-kiln | bench/heavy.sh rdkit-full server -rounds 3 -cap 1h
