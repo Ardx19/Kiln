@@ -19,7 +19,9 @@
 // the small-runner profile: memory is read from the container's cgroup
 // when there is one. A watchdog kills a run that leaves less than -guard
 // of memory, so a runaway Ninja can't take the machine down; such a run
-// is recorded as aborted. -cap kills a run that takes too long.
+// is recorded as aborted. -cap kills a run that takes too long. On a
+// machine shared with other people, -peak tree records the run's own
+// processes rather than the machine's whole use of memory.
 //
 // Usage:
 //
@@ -44,6 +46,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Ardx19/kiln/internal/proctree"
 	"github.com/Ardx19/kiln/internal/sysinfo"
 )
 
@@ -62,6 +65,7 @@ type Result struct {
 	OOMKill uint64  `json:"oom_kills"`
 	Jobs    int     `json:"jobs,omitempty"`
 	Start   string  `json:"start,omitempty"` // RFC 3339
+	Peak    string  `json:"peak,omitempty"`  // "tree": PeakMiB is the run's own processes, not the machine's use
 
 	interrupted bool // stopped by a signal to bench: not a result
 }
@@ -104,6 +108,7 @@ type config struct {
 	only             string
 	rounds           int
 	guard            uint64 // bytes
+	peakTree         bool
 	runCap, budget   time.Duration
 	out              string
 	targets          []string
@@ -157,6 +162,7 @@ func main() {
 	flag.StringVar(&c.series.Profile, "profile", "host", "machine profile name for the results")
 	flag.StringVar(&c.series.Name, "series", "", "series name; rows of other series are neither resumed nor summarised")
 	guard := flag.Uint64("guard", 400, "abort a run when less than this many MiB of memory remain")
+	peak := flag.String("peak", "host", "what the peak memory counts: host (the machine's use, or the cgroup's) or tree (the run's own processes, for a shared machine)")
 	flag.StringVar(&c.out, "out", "", "append JSON results to this file, skipping runs already in it")
 	flag.StringVar(&c.only, "only", "", "comma-separated runners to run (default: all)")
 	flag.IntVar(&c.rounds, "rounds", 1, "how many times to run each runner")
@@ -178,6 +184,14 @@ func main() {
 		os.Exit(2)
 	}
 	c.guard = *guard << 20
+	switch *peak {
+	case "host":
+	case "tree":
+		c.peakTree = true
+	default:
+		fmt.Fprintf(os.Stderr, "bench: -peak is host or tree, not %q\n", *peak)
+		os.Exit(2)
+	}
 	c.targets = flag.Args()
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	rows, err := readRows(c.out)
@@ -374,7 +388,7 @@ func (c config) runOne(r Run) (Result, error) {
 			return Result{}, err
 		}
 	}
-	res := run(tool, append(args, c.targets...), c.guard, c.runCap)
+	res := run(tool, append(args, c.targets...), c.guard, c.runCap, c.peakTree)
 	if r.Runner == "kiln-first" {
 		if err := snapshotHistory(c.dir, snap); err != nil {
 			return Result{}, err
@@ -534,10 +548,11 @@ func parsePhony(query string) []string {
 // so it would otherwise outlive bench and compete with the next chunk.
 var stop = make(chan os.Signal, 1)
 
-// run times one command, sampling memory twice a second. It kills the
-// command's whole tree when less than guard bytes of memory remain, or
-// once it has run for runCap (if not zero).
-func run(tool string, args []string, guard uint64, runCap time.Duration) Result {
+// run times one command, sampling memory twice a second: the machine's
+// use, or with tree the summed RSS of the command's own process tree. It
+// kills the command's whole tree when less than guard bytes of memory
+// remain, or once it has run for runCap (if not zero).
+func run(tool string, args []string, guard uint64, runCap time.Duration, tree bool) Result {
 	cmd := exec.Command(tool, args...)
 	cmd.Env = append(os.Environ(), "CCACHE_DISABLE=1")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -545,6 +560,9 @@ func run(tool string, args []string, guard uint64, runCap time.Duration) Result 
 	before := sysinfo.ReadMemory()
 	start := time.Now()
 	res := Result{Start: start.Format(time.RFC3339)}
+	if tree {
+		res.Peak = "tree"
+	}
 	if err := cmd.Start(); err != nil {
 		res.Exit = 127
 		return res
@@ -568,19 +586,23 @@ loop:
 			break loop
 		case <-stop:
 			res.interrupted = true
-			killTree(cmd.Process.Pid)
+			proctree.Kill(cmd.Process.Pid)
 		case <-deadline:
 			deadline = nil
 			if !res.Aborted {
 				res.Capped = true
-				killTree(cmd.Process.Pid)
+				proctree.Kill(cmd.Process.Pid)
 			}
 		case <-tick.C:
 			m := sysinfo.ReadMemory()
-			peak = max(peak, used(m))
+			if tree {
+				peak = max(peak, proctree.RSS(proctree.Descendants(cmd.Process.Pid)))
+			} else {
+				peak = max(peak, used(m))
+			}
 			if m.Headroom() < guard && !res.Aborted && !res.Capped {
 				res.Aborted = true
-				killTree(cmd.Process.Pid)
+				proctree.Kill(cmd.Process.Pid)
 			}
 		}
 	}
@@ -595,43 +617,6 @@ loop:
 		res.Exit = 1
 	}
 	return res
-}
-
-// killTree kills root and everything it started, however the descendants
-// regrouped themselves: ninja runs each job in its own process group, so
-// killing ninja's group would leave the compilers running.
-func killTree(root int) {
-	for range 3 { // a few passes, in case something forks meanwhile
-		parent := map[int]int{}
-		ents, _ := os.ReadDir("/proc")
-		for _, e := range ents {
-			var pid int
-			if _, err := fmt.Sscanf(e.Name(), "%d", &pid); err != nil {
-				continue
-			}
-			b, err := os.ReadFile("/proc/" + e.Name() + "/stat")
-			if err != nil {
-				continue
-			}
-			rest := string(b[strings.LastIndexByte(string(b), ')')+1:])
-			var state string
-			var ppid int
-			if _, err := fmt.Sscanf(rest, " %s %d", &state, &ppid); err == nil {
-				parent[pid] = ppid
-			}
-		}
-		victims := []int{root}
-		for i := 0; i < len(victims); i++ {
-			for pid, pp := range parent {
-				if pp == victims[i] {
-					victims = append(victims, pid)
-				}
-			}
-		}
-		for _, pid := range victims {
-			syscall.Kill(pid, syscall.SIGKILL)
-		}
-	}
 }
 
 // Table renders results as a Markdown table.

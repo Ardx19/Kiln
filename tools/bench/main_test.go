@@ -146,7 +146,23 @@ func TestSummary(t *testing.T) {
 // compilers in their own process groups, and returns its pid file.
 func sleeper(t *testing.T, runCap time.Duration) (Result, string) {
 	pidFile := filepath.Join(t.TempDir(), "pid")
-	return run("/bin/sh", []string{"-c", "sleep 60 & echo $! >" + pidFile + "; sleep 60"}, 0, runCap), pidFile
+	return run("/bin/sh", []string{"-c", "sleep 60 & echo $! >" + pidFile + "; sleep 60"}, 0, runCap, false), pidFile
+}
+
+func TestTreePeak(t *testing.T) {
+	// A shell that holds about 64 MiB in a child: the tree's peak should
+	// see it, and not the gigabytes the rest of the machine uses.
+	memhog := filepath.Join(t.TempDir(), "memhog")
+	if out, err := exec.Command("go", "build", "-o", memhog, "../memhog").CombinedOutput(); err != nil {
+		t.Fatalf("building memhog: %v\n%s", err, out)
+	}
+	res := run("/bin/sh", []string{"-c", memhog + " -mib 64 -secs 0.5 -hold 1.5"}, 0, 0, true)
+	if !res.OK() || res.Peak != "tree" {
+		t.Fatalf("run = %+v, want an ok run with a tree peak", res)
+	}
+	if res.PeakMiB < 60 || res.PeakMiB > 400 {
+		t.Errorf("tree peak %.0f MiB, want about 64 MiB", res.PeakMiB)
+	}
 }
 
 // waitGone fails unless the process in pidFile dies within a few seconds.
