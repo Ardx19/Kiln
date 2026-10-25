@@ -48,6 +48,29 @@ func TestGuardedMaximum(t *testing.T) {
 	}
 }
 
+func TestLiveGuess(t *testing.T) {
+	l, _ := Open(filepath.Join(t.TempDir(), "mem.log"))
+	p := NewPredictor(l, nil)
+	cc := func(rule string) Edge { return Edge{Output: rule + "/x.o", Rule: rule, Command: "c++ -c x.cpp"} }
+	p.Live(cc("CXX_COMPILER__a_"), 1000*mib) // under the default: no change
+	if got := p.Predict(cc("CXX_COMPILER__b_")); got != DefaultPeaks[Compile] {
+		t.Errorf("small live use: %d MiB, want the default", got/mib)
+	}
+	p.Live(cc("CXX_COMPILER__a_"), 2000*mib)
+	p.Live(cc("CXX_COMPILER__a_"), 1800*mib) // only rises
+	if got := p.Predict(cc("CXX_COMPILER__b_")) / mib; got != 2200 {
+		t.Errorf("after a 2000 MiB live compile: %d MiB, want 2200", got)
+	}
+	if got := p.Predict(Edge{Output: "app", Rule: "CXX_EXECUTABLE_LINKER__app_", Command: "c++ a.o -o app"}); got != DefaultPeaks[Link] {
+		t.Errorf("a link learned from a compile: %d MiB", got/mib)
+	}
+	// Once a compile has finished, the groups take over from the live guess.
+	p.Observe(cc("CXX_COMPILER__a_"), 2100*mib, 1000, 1, true)
+	if got := p.Predict(cc("CXX_COMPILER__c_")) / mib; got != 2310 {
+		t.Errorf("after a finished compile: %d MiB, want its 2100 plus 10%%", got)
+	}
+}
+
 func TestPredict(t *testing.T) {
 	l, _ := Open(filepath.Join(t.TempDir(), "mem.log"))
 	cc := func(out string) Edge {
