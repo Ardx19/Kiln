@@ -4,7 +4,7 @@ type: feat
 status: active
 date: 2026-10-21
 updated: 2026-10-22 (all milestones through M8 built; benchmarks and the v0.1.0 tag remain)
-scope: ../../project_scope.md.txt
+scope: 2026-10-20-original-scope.md
 ---
 
 # kiln — implementation plan
@@ -672,7 +672,7 @@ All three were resolved on 2026-10-21:
 
 ## References
 
-- Scope: [`project_scope.md.txt`](../../project_scope.md.txt)
+- Scope: [the original scope](2026-10-20-original-scope.md)
 - Ninja manual: https://ninja-build.org/manual.html
 - Ninja source: https://github.com/ninja-build/ninja
   - `src/build_log.cc` at v1.11.1, v1.12.1 and v1.13.1

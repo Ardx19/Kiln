@@ -1,6 +1,19 @@
 # Benchmarks
 
-This page says how to reproduce kiln's benchmark tables and records what has been measured. Two kinds of runs are recorded. **Cold full builds** (one run per setting) of RDKit on a laptop and in a small container, and of DuckDB in the container: Ninja's default fails or is stopped by the memory guard every time, and kiln with no flags finishes every time. Against the best hand-tuned `-j` it is 7-9% faster on the RDKit laptop build, level on DuckDB (within 2%), and 12-15% slower on the RDKit container build. **Heaviest compiles** of each project (three runs per setting, including LLVM on the laptop) show the same safety result and speeds from about 10% faster to 9% slower. Cold full builds of LLVM, LLVM in the container and DuckDB on the laptop have not been run.
+This page says how to reproduce kiln's benchmark tables and records what has been measured, in the order it was measured. The three large projects are RDKit (compile-heavy), LLVM with Clang (the largest) and DuckDB (the medium project: 699 commands, a few very heavy unity builds).
+
+**Where things stand** (kiln after `c14f5f2`; the sections below say which kiln each run used):
+- **Safety.** On machines short of memory (an 11.7 GiB laptop, a 4-CPU / 6 GiB container), Ninja's default `-j` failed or was stopped by the memory guard every time, and kiln with no flags finished every run with no OOM kills.
+- **Speed once kiln has learned a project,** against the best hand-tuned `-j`:
+  - 7% faster on DuckDB's heaviest compiles (container)
+  - 4% faster on RDKit's whole build (container, one run)
+  - 9-10% faster on RDKit on the laptop
+  - 3% slower on LLVM's heaviest compiles (laptop)
+  - On a 251 GiB server, with no memory pressure: 13% faster on DuckDB's whole build, level on LLVM's and RDKit's.
+- **First builds,** with no memory history, are kiln's weak spot: 18% slower on DuckDB's heaviest compiles and 7% slower on LLVM's.
+- **Not run:** LLVM in the container, and DuckDB on the laptop. Every other cold full build has been, including LLVM's on the server.
+
+The sections up to "Cold full builds (2026-10-23)" used the scheduler as of `e0c8f40`. "After the scheduler fixes" has the later reruns: they replace the 12-15% RDKit container loss and the DuckDB and LLVM losses reported earlier.
 
 ## Measured so far
 
@@ -58,7 +71,7 @@ How it got there, because the first attempt was worse: my first laptop run had k
 Limits, stated plainly:
 - **The kiln rows were rerun after the scheduler change** (`e0c8f40`), hours after the Ninja rows, not interleaved with them; the laptop's speed drifted by up to 58% within this session (the slow spell above).
 - **Three runs per row**, on one machine (a Ryzen 5 5500U laptop) and one project. Default Ninja's rows are single runs, made earlier, since repeating a known failure costs 18 minutes in the container. With three runs, a difference of a few percent is within the noise; the ranges show how much. "Best hand-tuned" is the best of the values swept: `-j5` to `-j7` on the laptop, `-j3` to `-j5` in the container.
-- **Subsets here; the cold full builds are in the next section.** Each project's heaviest compiles, chosen from its build log. Not run: cold full builds of LLVM, LLVM in the container, DuckDB on the laptop.
+- **Subsets here; the cold full builds are in the next section.** Each project's heaviest compiles, chosen from its build log.
 - **Ordering and page cache.** The page cache can't be dropped without root, so runs after the first in a chunk find the sources and headers cached. The rotation gives every runner each position once over three rounds.
 - **Peak memory** is the system's (laptop) or the container's working set (container), sampled twice a second, and includes file cache the compiles read. The learned laptop runs used more memory than the hand-tuned ones (9.1 against 8.3 GiB) because they keep more jobs running; the guard never fired.
 - ccache was disabled. Raw numbers, one JSON line per run with its start time: `bench/results/rdkit-12-heaviest.jsonl`. Reproduce with `bench/heavy.sh rdkit laptop` or `bench/heavy.sh rdkit container` (below).
@@ -125,7 +138,7 @@ Limits specific to these runs:
 - **One run per setting, so no ranges.** The comparisons above are single measurements.
 - **The `-j` values were not swept on the full builds.** A `-j` that is best for the heaviest compiles may not be best for a whole build; I did not test that.
 - **Three setup problems were found by the runs and fixed**, each by a run failing at once or at the end, and those attempts are not in the tables: DuckDB's build runs a Python from `~/.local` (mounted into the container now), RDKit's ChemDraw links expat and freetype (added to the image), and the first full DuckDB `-j3` build was lost to the first of these after 27 minutes.
-- Not done: cold full builds of LLVM (estimated at 10 hours or more on the laptop, not measured), LLVM in the container, DuckDB on the laptop.
+- Not done at the time: cold full builds of LLVM (done later on the server, below), LLVM in the container, DuckDB on the laptop.
 
 ## After the scheduler fixes (2026-10-24 night)
 
