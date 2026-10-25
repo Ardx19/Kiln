@@ -429,13 +429,6 @@ func (s *memSched) tick() {
 		s.debugf("brake %s (headroom %s, swap %d pages)", map[bool]string{true: "on", false: "off"}[paused], size(headroom), swap)
 	}
 	s.paused = paused
-	for e, j := range s.jobs {
-		if j.pgid != 0 {
-			if cur, ok := s.sampler.Current(j.pgid); ok {
-				s.pred.Live(s.describe(e), cur.Peak)
-			}
-		}
-	}
 	if headroom >= s.critical || len(s.jobs)-len(s.killed) <= s.minJobs || time.Since(s.lastKill) < killCooldown {
 		return
 	}

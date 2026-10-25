@@ -55,7 +55,6 @@ type Edge struct {
 type Predictor struct {
 	log    *Log
 	groups map[string]*group // "rule\x00dir", "rule", "kind:<k>"
-	live   map[Kind]uint64   // the most a running job of each kind with no basis has used so far
 }
 
 // group collects the estimates of similar edges.
@@ -95,7 +94,7 @@ func (g *group) median() uint64 {
 // NewPredictor builds the predictor from the log, using edges to group
 // the history by rule, output directory and kind.
 func NewPredictor(log *Log, edges []Edge) *Predictor {
-	p := &Predictor{log: log, groups: map[string]*group{}, live: map[Kind]uint64{}}
+	p := &Predictor{log: log, groups: map[string]*group{}}
 	for _, e := range edges {
 		if r := log.Records[e.Output]; r != nil {
 			p.add(e, r.Estimate)
@@ -135,37 +134,7 @@ func (p *Predictor) Predict(e Edge) uint64 {
 	if g := p.groups[keys[2]]; g != nil {
 		return uint64(float64(g.median()) * Margin)
 	}
-	k := Classify(e.Rule, e.Command)
-	return max(DefaultPeaks[k], uint64(float64(p.live[k])*Margin))
-}
-
-// basis reports whether e's prediction rests on finished runs: its own or
-// those of similar edges.
-func (p *Predictor) basis(e Edge) bool {
-	if p.log.Records[e.Output] != nil {
-		return true
-	}
-	for _, k := range p.keys(e) {
-		if p.groups[k] != nil {
-			return true
-		}
-	}
-	return false
-}
-
-// Live takes in what a running edge has used so far. Until something
-// like an edge has finished, its guess is only the default for its kind,
-// and a default below what the edges really need overcommits the whole
-// first wave (measured: LLVM's units need 1.6-2.2 GiB against the 1.5 GiB
-// default, and kiln's brake had to stop jobs and throw their work away).
-// So while edges have no basis, the guess for their kind rises to the
-// most a running one of that kind has used, plus the margin. It only
-// rises: a job's use early in its run says nothing about its peak.
-func (p *Predictor) Live(e Edge, rss uint64) {
-	if !p.basis(e) {
-		k := Classify(e.Rule, e.Command)
-		p.live[k] = max(p.live[k], rss)
-	}
+	return DefaultPeaks[Classify(e.Rule, e.Command)]
 }
 
 // Duration is how long e's last full-size run took, or 0 if it has no
